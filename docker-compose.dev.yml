@@ -1,0 +1,32 @@
+# Development override file
+# Use with: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+version: '3.8'
+
+services:
+  backend:
+    environment:
+      # Enable hot reload
+      NODE_ENV: development
+    volumes:
+      # Mount source for hot reload
+      - ./backend/src:/app/backend/src
+      - ./backend/tsconfig.json:/app/backend/tsconfig.json
+      - ./backend/mastra.config.ts:/app/backend/mastra.config.ts
+
+  frontend:
+    environment:
+      # Enable hot reload
+      NODE_ENV: development
+      WATCHPACK_POLLING: "true"
+      TWITTER_CALLBACK_URL: http://backend:3001/api/auth/twitter/callback
+      GITHUB_CALLBACK_URL: http://backend:3001/api/auth/github/callback
+    volumes:
+      # Mount source for hot reload
+      - ./frontend/app:/app/frontend/app
+      - ./frontend/components:/app/frontend/components
+      - ./frontend/lib:/app/frontend/lib
+      - ./frontend/public:/app/frontend/public
+      - ./frontend/next.config.js:/app/frontend/next.config.js
+      - ./frontend/tailwind.config.ts:/app/frontend/tailwind.config.ts
+      - ./frontend/tsconfig.json:/app/frontend/tsconfig.json

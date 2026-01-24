@@ -1,0 +1,198 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: metaspn-postgres-prod
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-metaspn}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-metaspn}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./database/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-metaspn}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - metaspn-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    # Don't expose port 5432 externally in production
+    # Only accessible within Docker network
+
+  backend:
+    build:
+      context: .
+      dockerfile: ./backend/Dockerfile.prod
+    image: metaspn-backend:latest
+    container_name: metaspn-backend-prod
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-metaspn}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-metaspn}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      NODE_ENV: production
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      TWITTER_CLIENT_ID: ${TWITTER_CLIENT_ID}
+      TWITTER_CLIENT_SECRET: ${TWITTER_CLIENT_SECRET}
+      TWITTER_CALLBACK_URL: ${TWITTER_CALLBACK_URL}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET}
+      GITHUB_CALLBACK_URL: ${GITHUB_CALLBACK_URL}
+      GITHUB_TOKEN_ENCRYPTION_KEY: ${GITHUB_TOKEN_ENCRYPTION_KEY}
+      GITHUB_PUSH_CRON: ${GITHUB_PUSH_CRON:-0 */6 * * *}
+      FRONTEND_URL: ${FRONTEND_URL}
+    ports:
+      - "127.0.0.1:3001:3001"  # Only bind to localhost (nginx will proxy)
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - metaspn-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: ./frontend/Dockerfile.prod
+    image: metaspn-frontend:latest
+    container_name: metaspn-frontend-prod
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+      NEXTAUTH_URL: ${NEXTAUTH_URL}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      NODE_ENV: production
+    ports:
+      - "127.0.0.1:3000:3000"  # Only bind to localhost (nginx will proxy)
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - metaspn-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  worker:
+    build:
+      context: .
+      dockerfile: ./backend/Dockerfile.prod
+    image: metaspn-backend:latest
+    container_name: metaspn-worker-prod
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-metaspn}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-metaspn}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      NODE_ENV: production
+      GITHUB_PUSH_CRON: ${GITHUB_PUSH_CRON:-0 */6 * * *}
+    # Worker needs tsx to run TypeScript, install it and run worker
+    command: ["sh", "-c", "cd /app/backend && pnpm add -D tsx && pnpm exec tsx src/worker.ts"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    networks:
+      - metaspn-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Database backup service (runs periodically)
+  db-backup:
+    image: postgres:16-alpine
+    container_name: metaspn-db-backup
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      BACKUP_STORAGE_PATH: ${BACKUP_STORAGE_PATH:-/backups}
+    volumes:
+      - ./scripts:/scripts:ro
+      - backup_data:/backups
+      - postgres_data:/var/lib/postgresql/data:ro
+    networks:
+      - metaspn-network
+    command: >
+      sh -c "
+        apk add --no-cache postgresql-client &&
+        while true; do
+          /scripts/backup-database.sh || echo 'Backup failed';
+          sleep 86400;
+        done
+      "
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+volumes:
+  postgres_data:
+    driver: local
+  backup_data:
+    driver: local
+
+networks:
+  metaspn-network:
+    driver: bridge

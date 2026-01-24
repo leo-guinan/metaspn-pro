@@ -1,0 +1,74 @@
+# Multi-stage production build for frontend
+FROM node:20-alpine AS base
+
+# Install pnpm
+RUN corepack enable && corepack prepare pnpm@8.15.9 --activate
+
+# Set working directory
+WORKDIR /app
+
+# Copy root package files (needed for pnpm workspace)
+COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml* ./
+
+# Copy frontend package.json
+COPY frontend/package.json ./frontend/
+
+# Install dependencies
+RUN pnpm install --frozen-lockfile --prod=false
+
+# Build stage
+FROM base AS builder
+
+# Copy frontend source code
+COPY frontend/ ./frontend/
+
+# Build Next.js application
+WORKDIR /app/frontend
+RUN pnpm run build
+
+# Production stage
+FROM node:20-alpine AS production
+
+# Install pnpm
+RUN corepack enable && corepack prepare pnpm@8.15.9 --activate
+
+# Set working directory
+WORKDIR /app
+
+# Copy root package files
+COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml* ./
+
+# Copy frontend package.json
+COPY frontend/package.json ./frontend/
+
+# Install production dependencies only
+RUN pnpm install --frozen-lockfile --prod
+
+# Copy built application from builder
+COPY --from=builder /app/frontend/.next ./frontend/.next
+COPY --from=builder /app/frontend/public ./frontend/public
+COPY --from=builder /app/frontend/next.config.js ./frontend/next.config.js
+COPY --from=builder /app/frontend/package.json ./frontend/package.json
+
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001
+
+# Change ownership
+RUN chown -R nodejs:nodejs /app
+
+# Switch to non-root user
+USER nodejs
+
+# Set working directory to frontend
+WORKDIR /app/frontend
+
+# Expose port
+EXPOSE 3000
+
+# Health check (Next.js root endpoint)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1
+
+# Start production server
+CMD ["pnpm", "run", "start"]

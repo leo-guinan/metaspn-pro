@@ -1,0 +1,157 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: metaspn-postgres
+    environment:
+      POSTGRES_USER: metaspn
+      POSTGRES_PASSWORD: metaspn_dev_password
+      POSTGRES_DB: metaspn
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U metaspn"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - metaspn-network
+
+  backend:
+    build:
+      context: .
+      dockerfile: ./backend/Dockerfile
+    container_name: metaspn-backend
+    working_dir: /app/backend
+    environment:
+      DATABASE_URL: postgresql://metaspn:metaspn_dev_password@postgres:5432/metaspn
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      NODE_ENV: development
+      JWT_SECRET: ${JWT_SECRET:-${NEXTAUTH_SECRET:-dev-secret-change-in-production}}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      TWITTER_CLIENT_ID: ${TWITTER_CLIENT_ID:-}
+      TWITTER_CLIENT_SECRET: ${TWITTER_CLIENT_SECRET:-}
+      TWITTER_CALLBACK_URL: ${TWITTER_CALLBACK_URL:-http://localhost:3001/api/auth/twitter/callback}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      GITHUB_CALLBACK_URL: ${GITHUB_CALLBACK_URL:-http://localhost:3001/api/auth/github/callback}
+      GITHUB_TOKEN_ENCRYPTION_KEY: ${GITHUB_TOKEN_ENCRYPTION_KEY:-}
+      GITHUB_PUSH_CRON: ${GITHUB_PUSH_CRON:-}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./backend:/app/backend
+      - ./package.json:/app/package.json
+      - ./pnpm-workspace.yaml:/app/pnpm-workspace.yaml
+      - ./pnpm-lock.yaml:/app/pnpm-lock.yaml
+      - /app/node_modules
+      - /app/backend/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - metaspn-network
+    command: pnpm run dev
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: ./frontend/Dockerfile
+    container_name: metaspn-frontend
+    working_dir: /app/frontend
+    environment:
+      # Use backend service name for internal communication, localhost for browser
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-dev-secret-change-in-production}
+      NODE_ENV: development
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app/frontend
+      - ./package.json:/app/package.json
+      - ./pnpm-workspace.yaml:/app/pnpm-workspace.yaml
+      - ./pnpm-lock.yaml:/app/pnpm-lock.yaml
+      - /app/node_modules
+      - /app/frontend/node_modules
+      - /app/frontend/.next
+    depends_on:
+      - backend
+    networks:
+      - metaspn-network
+    command: sh -c "cd /app/frontend && pnpm run dev"
+    restart: unless-stopped
+
+  mastra-dev:
+    build:
+      context: .
+      dockerfile: ./backend/Dockerfile
+    container_name: metaspn-mastra-dev
+    working_dir: /app/backend
+    environment:
+      DATABASE_URL: postgresql://metaspn:metaspn_dev_password@postgres:5432/metaspn
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      NODE_ENV: development
+      NODE_PATH: /app/node_modules:/app/backend/node_modules
+    ports:
+      - "4111:4111"
+    volumes:
+      - ./backend:/app/backend
+      - ./package.json:/app/package.json
+      - ./pnpm-workspace.yaml:/app/pnpm-workspace.yaml
+      - ./pnpm-lock.yaml:/app/pnpm-lock.yaml
+      - /app/node_modules
+      - /app/backend/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - metaspn-network
+    command: pnpm run dev:mastra
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: ./backend/Dockerfile
+    container_name: metaspn-worker
+    working_dir: /app/backend
+    environment:
+      DATABASE_URL: postgresql://metaspn:metaspn_dev_password@postgres:5432/metaspn
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      NODE_ENV: development
+      GITHUB_PUSH_CRON: ${GITHUB_PUSH_CRON:-}
+    volumes:
+      - ./backend:/app/backend
+      - ./package.json:/app/package.json
+      - ./pnpm-workspace.yaml:/app/pnpm-workspace.yaml
+      - ./pnpm-lock.yaml:/app/pnpm-lock.yaml
+      - /app/node_modules
+      - /app/backend/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    networks:
+      - metaspn-network
+    command: pnpm run worker
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  metaspn-network:
+    driver: bridge

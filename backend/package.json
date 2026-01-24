@@ -1,0 +1,39 @@
+{
+  "name": "@metaspn-pro/backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx --tsconfig tsconfig.json src/index.ts",
+    "dev:mastra": "npx mastra dev",
+    "build": "mastra build",
+    "start": "node .mastra/index.mjs",
+    "worker": "tsx --tsconfig tsconfig.json src/worker.ts",
+    "type-check": "tsc --noEmit",
+    "db:migrate": "tsx database/migrate.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.20.0",
+    "@hono/node-server": "^1.8.2",
+    "@mastra/core": "^1.0.1",
+    "@mastra/hono": "^1.0.1",
+    "dotenv": "^16.4.5",
+    "hono": "^4.11.5",
+    "octokit": "^3.1.2",
+    "openai": "^4.28.0",
+    "node-cron": "^3.0.3",
+    "pg": "^8.11.3",
+    "pgvector": "^0.1.8",
+    "rss-parser": "^3.13.0",
+    "zod": "^3.22.4",
+    "jsonwebtoken": "^9.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/node-cron": "^3.0.11",
+    "@types/pg": "^8.10.9",
+    "@types/jsonwebtoken": "^9.0.5",
+    "tsx": "^4.7.1",
+    "typescript": "^5.3.3"
+  }
+}
