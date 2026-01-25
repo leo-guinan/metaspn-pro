@@ -48,8 +48,11 @@ services:
       # Neon.tech PostgreSQL connection
       DATABASE_URL: ${DATABASE_URL}  # From Neon.tech connection string
       # Chroma Cloud
-      CHROMA_API_URL: ${CHROMA_API_URL:-https://api.trychroma.com}
       CHROMA_API_KEY: ${CHROMA_API_KEY}
+      CHROMA_TENANT: ${CHROMA_TENANT}
+      CHROMA_DATABASE: ${CHROMA_DATABASE}
+      # CHROMA_API_URL is only needed for self-hosted Chroma (not Chroma Cloud)
+      CHROMA_API_URL: ${CHROMA_API_URL:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       NODE_ENV: production
@@ -139,8 +142,11 @@ services:
       # Neon.tech PostgreSQL connection
       DATABASE_URL: ${DATABASE_URL}
       # Chroma Cloud
-      CHROMA_API_URL: ${CHROMA_API_URL:-https://api.trychroma.com}
       CHROMA_API_KEY: ${CHROMA_API_KEY}
+      CHROMA_TENANT: ${CHROMA_TENANT}
+      CHROMA_DATABASE: ${CHROMA_DATABASE}
+      # CHROMA_API_URL is only needed for self-hosted Chroma (not Chroma Cloud)
+      CHROMA_API_URL: ${CHROMA_API_URL:-}
       # API Keys
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}

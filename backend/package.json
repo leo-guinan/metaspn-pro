@@ -23,7 +23,7 @@
     "openai": "^4.28.0",
     "node-cron": "^3.0.3",
     "pg": "^8.11.3",
-    "chromadb": "^1.8.0",
+    "chromadb": "^3.2.2",
     "rss-parser": "^3.13.0",
     "zod": "^3.22.4",
     "jsonwebtoken": "^9.0.2"

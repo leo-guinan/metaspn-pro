@@ -30,9 +30,12 @@ if [ "$PERMS" != "600" ]; then
     ((WARNINGS++))
 fi
 
-# Required secrets
+# Required secrets (for managed services architecture)
 REQUIRED_SECRETS=(
-    "POSTGRES_PASSWORD"
+    "DATABASE_URL"
+    "CHROMA_API_KEY"
+    "CHROMA_TENANT"
+    "CHROMA_DATABASE"
     "JWT_SECRET"
     "NEXTAUTH_SECRET"
     "GITHUB_TOKEN_ENCRYPTION_KEY"
@@ -80,6 +83,48 @@ if grep -q "^NEXTAUTH_SECRET=" "$ENV_FILE"; then
     if [ ${#nextauth_secret} -lt 32 ]; then
         echo -e "${YELLOW}⚠️  Warning: NEXTAUTH_SECRET should be at least 32 characters (current: ${#nextauth_secret})${NC}"
         ((WARNINGS++))
+    fi
+fi
+
+# Validate DATABASE_URL format (should be Neon.tech connection string)
+if grep -q "^DATABASE_URL=" "$ENV_FILE"; then
+    database_url=$(grep "^DATABASE_URL=" "$ENV_FILE" | cut -d '=' -f2-)
+    if [[ ! "$database_url" =~ ^postgresql:// ]]; then
+        echo -e "${RED}❌ DATABASE_URL must be a PostgreSQL connection string (postgresql://...${NC}"
+        ((ERRORS++))
+    elif [[ "$database_url" =~ CHANGE_ME|your_|ep-xxx ]]; then
+        echo -e "${RED}❌ DATABASE_URL appears to be a placeholder${NC}"
+        ((ERRORS++))
+    else
+        echo -e "${GREEN}✅ DATABASE_URL format looks valid${NC}"
+    fi
+fi
+
+# Validate Chroma Cloud configuration
+if grep -q "^CHROMA_API_KEY=" "$ENV_FILE"; then
+    chroma_key=$(grep "^CHROMA_API_KEY=" "$ENV_FILE" | cut -d '=' -f2-)
+    if [[ "$chroma_key" =~ CHANGE_ME|your_ ]]; then
+        echo -e "${RED}❌ CHROMA_API_KEY appears to be a placeholder${NC}"
+        ((ERRORS++))
+    fi
+fi
+
+if grep -q "^CHROMA_TENANT=" "$ENV_FILE"; then
+    chroma_tenant=$(grep "^CHROMA_TENANT=" "$ENV_FILE" | cut -d '=' -f2-)
+    if [[ "$chroma_tenant" =~ CHANGE_ME|your_|xxx ]]; then
+        echo -e "${RED}❌ CHROMA_TENANT appears to be a placeholder${NC}"
+        ((ERRORS++))
+    elif [[ ! "$chroma_tenant" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+        echo -e "${YELLOW}⚠️  Warning: CHROMA_TENANT should be a UUID format${NC}"
+        ((WARNINGS++))
+    fi
+fi
+
+if grep -q "^CHROMA_DATABASE=" "$ENV_FILE"; then
+    chroma_database=$(grep "^CHROMA_DATABASE=" "$ENV_FILE" | cut -d '=' -f2-)
+    if [[ -z "$chroma_database" ]] || [[ "$chroma_database" =~ CHANGE_ME|your_ ]]; then
+        echo -e "${RED}❌ CHROMA_DATABASE appears to be a placeholder or empty${NC}"
+        ((ERRORS++))
     fi
 fi
 

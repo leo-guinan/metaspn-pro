@@ -48,7 +48,7 @@ if [ "$1" = "all" ]; then
     rotate_secret "JWT_SECRET" 64
     rotate_secret "NEXTAUTH_SECRET" 64
     rotate_secret "GITHUB_TOKEN_ENCRYPTION_KEY" 32
-    rotate_secret "POSTGRES_PASSWORD" 32
+    echo "ℹ️  Note: DATABASE_URL is managed by Neon.tech - update it manually if needed"
 elif [ -n "$1" ]; then
     # Rotate specific secret
     case "$1" in
@@ -61,18 +61,16 @@ elif [ -n "$1" ]; then
         github-key)
             rotate_secret "GITHUB_TOKEN_ENCRYPTION_KEY" 32
             ;;
-        db-password)
-            rotate_secret "POSTGRES_PASSWORD" 32
-            echo "⚠️  Remember to update database password manually!"
-            ;;
         *)
             echo "Unknown secret: $1"
-            echo "Usage: $0 [all|jwt|nextauth|github-key|db-password]"
+            echo "Usage: $0 [all|jwt|nextauth|github-key]"
+            echo "Note: DATABASE_URL is managed by Neon.tech - update manually if needed"
             exit 1
             ;;
     esac
 else
-    echo "Usage: $0 [all|jwt|nextauth|github-key|db-password]"
+    echo "Usage: $0 [all|jwt|nextauth|github-key]"
+    echo "Note: DATABASE_URL is managed by Neon.tech - update manually if needed"
     exit 1
 fi
 

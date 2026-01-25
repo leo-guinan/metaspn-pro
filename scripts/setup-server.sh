@@ -156,7 +156,16 @@ fi
 # Restart SSH (be careful - make sure you have SSH key access!)
 echo "⚠️  Restarting SSH service. Make sure you have SSH key access before continuing!"
 read -p "Press Enter to continue or Ctrl+C to abort..."
-systemctl restart sshd
+
+# Ubuntu uses 'ssh' service name, not 'sshd'
+if systemctl list-units --type=service | grep -q "ssh.service"; then
+    systemctl restart ssh
+elif systemctl list-units --type=service | grep -q "sshd.service"; then
+    systemctl restart sshd
+else
+    echo "⚠️  Could not find SSH service. Attempting to restart ssh..."
+    systemctl restart ssh || service ssh restart || echo "⚠️  SSH restart failed - you may need to restart manually"
+fi
 
 # Create non-root user for Docker operations
 echo "👤 Setting up non-root user for Docker..."
