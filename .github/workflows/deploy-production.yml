@@ -53,6 +53,21 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Test SSH connection
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.PRODUCTION_HOST }}
+          username: ${{ secrets.PRODUCTION_USER }}
+          key: ${{ secrets.PRODUCTION_SSH_KEY }}
+          port: ${{ secrets.PRODUCTION_SSH_PORT || 22 }}
+          debug: true
+          script: |
+            echo "🔍 Testing SSH connection..."
+            echo "Hostname: $(hostname)"
+            echo "User: $(whoami)"
+            echo "Working directory: $(pwd)"
+            echo "✅ SSH connection successful!"
+
       - name: Deploy to server
         uses: appleboy/ssh-action@v1.0.0
         with:
@@ -60,6 +75,7 @@ jobs:
           username: ${{ secrets.PRODUCTION_USER }}
           key: ${{ secrets.PRODUCTION_SSH_KEY }}
           port: ${{ secrets.PRODUCTION_SSH_PORT || 22 }}
+          debug: true
           script: |
             set -e
             cd /opt/metaspn
@@ -101,13 +117,3 @@ jobs:
             echo "✅ Deployment complete!"
             
             echo "✅ Deployment complete!"
-
-      - name: Notify deployment status
-        if: always()
-        uses: 8398a7/action-slack@v3
-        with:
-          status: ${{ job.status }}
-          text: 'Production deployment ${{ job.status }}'
-          webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
