@@ -6,37 +6,7 @@ version: '3.8'
 
 services:
   # PostgreSQL service removed - using Neon.tech managed database
-  # postgres:
-    image: pgvector/pgvector:pg16
-    container_name: metaspn-postgres-prod
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-metaspn}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB:-metaspn}
-      PGDATA: /var/lib/postgresql/data/pgdata
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-      - ./database/postgresql.conf:/etc/postgresql/postgresql.conf:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-metaspn}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-    networks:
-      - metaspn-network
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          cpus: '2'
-          memory: 2G
-        reservations:
-          cpus: '0.5'
-          memory: 512M
-    # Don't expose port 5432 externally in production
-    # Only accessible within Docker network
+  # All database operations go through DATABASE_URL (Neon.tech connection string)
 
   backend:
     build:
@@ -175,9 +145,6 @@ services:
         max-file: "3"
 
   # Database backup service removed - Neon.tech handles backups automatically
-
-volumes:
-  # No local database volumes needed
 
 networks:
   metaspn-network:
