@@ -144,6 +144,32 @@ services:
 
   # Database backup service removed - Neon.tech handles backups automatically
 
+  nginx:
+    build:
+      context: .
+      dockerfile: ./nginx/Dockerfile
+    image: metaspn-nginx:latest
+    container_name: metaspn-nginx-prod
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # Mount SSL certificates (must exist on host at /etc/nginx/ssl/)
+      - /etc/nginx/ssl:/etc/nginx/ssl:ro
+      # Mount certbot webroot for Let's Encrypt challenges
+      - /var/www/certbot:/var/www/certbot:ro
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - metaspn-network
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 networks:
   metaspn-network:
     driver: bridge

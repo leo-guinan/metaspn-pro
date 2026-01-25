@@ -280,6 +280,15 @@ jobs:
               exit 1
             }
             
+            # Start Nginx (reverse proxy)
+            echo "🚀 Starting Nginx..."
+            docker compose -f docker-compose.prod.yml --env-file "$ENV_FILE" up -d --no-deps nginx || {
+              echo "⚠️  Failed to start Nginx (may need SSL certificates first)"
+              echo "   💡 If SSL certs don't exist, run: sudo certbot certonly --standalone -d pro.metaspn.network"
+              echo "   💡 Then copy certs: sudo mkdir -p /etc/nginx/ssl && sudo cp /etc/letsencrypt/live/pro.metaspn.network/*.pem /etc/nginx/ssl/"
+              # Don't fail deployment if Nginx fails - services are still accessible on localhost
+            }
+            
             # Wait a bit for frontend to start
             sleep 10
             
