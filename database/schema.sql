@@ -1,8 +1,7 @@
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Enable pgvector extension for embeddings
-CREATE EXTENSION IF NOT EXISTS vector;
+-- Note: pgvector extension removed - using Chroma Cloud for vector storage
 
 -- Users table
 CREATE TABLE users (
@@ -61,7 +60,7 @@ CREATE TABLE transcript_chunks (
   start_sec DECIMAL NOT NULL,
   end_sec DECIMAL NOT NULL,
   text TEXT NOT NULL,
-  embedding vector(1536), -- OpenAI embedding dimension
+  chroma_id TEXT, -- Reference to Chroma Cloud collection item (embeddings stored in Chroma)
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -72,7 +71,7 @@ CREATE TABLE expressions (
   timestamp_utc TIMESTAMPTZ NOT NULL,
   text TEXT NOT NULL,
   source TEXT NOT NULL CHECK (source IN ('manual', 'twitter', 'bluesky', 'github')),
-  embedding vector(1536), -- OpenAI embedding dimension
+  chroma_id TEXT, -- Reference to Chroma Cloud collection item (embeddings stored in Chroma)
   metadata JSONB DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -106,12 +105,12 @@ CREATE INDEX idx_events_episode ON events(episode_id);
 
 -- Indexes for transcript chunks
 CREATE INDEX idx_transcript_chunks_episode ON transcript_chunks(episode_id);
-CREATE INDEX idx_transcript_chunks_embedding ON transcript_chunks USING ivfflat (embedding vector_cosine_ops);
+CREATE INDEX idx_transcript_chunks_chroma_id ON transcript_chunks(chroma_id);
 
 -- Indexes for expressions
 CREATE INDEX idx_expressions_user ON expressions(user_id);
 CREATE INDEX idx_expressions_timestamp ON expressions(timestamp_utc);
-CREATE INDEX idx_expressions_embedding ON expressions USING ivfflat (embedding vector_cosine_ops);
+CREATE INDEX idx_expressions_chroma_id ON expressions(chroma_id);
 
 -- Indexes for influence links
 CREATE INDEX idx_influence_links_episode ON influence_links(episode_id);

@@ -31,7 +31,7 @@ fi
 
 # Pull latest images
 echo "📥 Pulling latest images..."
-docker-compose -f "$COMPOSE_FILE" pull backend frontend || {
+docker compose -f "$COMPOSE_FILE" pull backend frontend || {
     echo -e "${RED}❌ Failed to pull images${NC}"
     exit 1
 }
@@ -39,14 +39,14 @@ docker-compose -f "$COMPOSE_FILE" pull backend frontend || {
 # Run database migrations
 echo "🔄 Running database migrations..."
 if [ -f "$APP_DIR/scripts/run-migrations.sh" ]; then
-    docker-compose -f "$COMPOSE_FILE" run --rm backend /scripts/run-migrations.sh || {
+    docker compose -f "$COMPOSE_FILE" run --rm backend /scripts/run-migrations.sh || {
         echo -e "${YELLOW}⚠️  Migration failed, but continuing deployment...${NC}"
     }
 fi
 
 # Deploy new containers
 echo "🚀 Deploying new containers..."
-docker-compose -f "$COMPOSE_FILE" up -d --no-deps backend frontend worker || {
+docker compose -f "$COMPOSE_FILE" up -d --no-deps backend frontend worker || {
     echo -e "${RED}❌ Failed to start containers${NC}"
     exit 1
 }

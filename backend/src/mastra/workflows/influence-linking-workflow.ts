@@ -1,7 +1,8 @@
 import { createStep, createWorkflow } from '@mastra/core/workflows'
 import { z } from 'zod'
 import { pool } from '../../db'
-import { findRecentEpisodes, getTranscriptChunks, computeSimilarity, createInfluenceLink } from '../tools/influence-linking-tools'
+import { findRecentEpisodes, findSimilarChunks, createInfluenceLink } from '../tools/influence-linking-tools'
+import { getExpressionsCollection } from '../../services/chroma.js'
 import { safeExecuteTool } from '../utils/tool-helpers'
 
 const findNewExpressionsStep = createStep({
@@ -23,11 +24,12 @@ const findNewExpressionsStep = createStep({
   execute: async ({ inputData }: any) => {
     // Find expressions that haven't been linked yet
     let query = `
-      SELECT e.expression_id, e.user_id, e.text, e.embedding, e.timestamp_utc
+      SELECT e.expression_id, e.user_id, e.text, e.chroma_id, e.timestamp_utc
       FROM expressions e
       WHERE NOT EXISTS (
         SELECT 1 FROM influence_links il WHERE il.expression_id = e.expression_id
       )
+      AND e.chroma_id IS NOT NULL
     `
     const params: any[] = []
 
@@ -64,9 +66,23 @@ const processExpressionsStep = createStep({
     for (const expression of expressions) {
       try {
         const user_id = expression.user_id
-        const expression_embedding = Array.isArray(expression.embedding)
-          ? expression.embedding
-          : JSON.parse(expression.embedding)
+        const chromaId = expression.chroma_id
+
+        if (!chromaId) {
+          console.warn(`Expression ${expression.expression_id} has no chroma_id, skipping`)
+          continue
+        }
+
+        // Get expression embedding from Chroma
+        const expressionsCollection = await getExpressionsCollection()
+        const chromaResult = await expressionsCollection.get({ ids: [chromaId] })
+        
+        if (!chromaResult.embeddings || chromaResult.embeddings.length === 0) {
+          console.warn(`No embedding found in Chroma for expression ${expression.expression_id}`)
+          continue
+        }
+
+        const expression_embedding = chromaResult.embeddings[0] as number[]
 
         // Find recent episodes
         const episodesResult = await safeExecuteTool<{ episodes: Array<{ episode_id: string; podcast_id: string; title: string; last_listen_time: string }> }>(
@@ -80,36 +96,25 @@ const processExpressionsStep = createStep({
 
         const episode_ids = episodesResult.episodes.map((e: any) => e.episode_id)
 
-        // Get transcript chunks
-        const chunksResult = await safeExecuteTool<{ chunks: Array<{ chunk_id: string; episode_id: string; start_sec: number; end_sec: number; text: string; embedding: any }> }>(
-          getTranscriptChunks,
-          { episode_ids }
-        )
-
-        if (chunksResult.chunks.length === 0) {
-          continue
-        }
-
-        // Compute similarity
-        const similarityResult = await safeExecuteTool<{ matches: Array<{ chunk_id: string; similarity: number }> }>(
-          computeSimilarity,
+        // Find similar chunks using Chroma
+        const similarityResult = await safeExecuteTool<{ matches: Array<{ chunk_id: string; episode_id: string; start_sec: number; end_sec: number; text: string; similarity: number }> }>(
+          findSimilarChunks,
           {
             expression_embedding,
-            chunk_embeddings: chunksResult.chunks.map((c: any) => ({
-              chunk_id: c.chunk_id,
-              embedding: c.embedding,
-            })),
+            episode_ids,
+            limit: 20,
             threshold: 0.3,
           }
         )
 
+        if (similarityResult.matches.length === 0) {
+          continue
+        }
+
         // Create influence links
         for (const match of similarityResult.matches) {
-          const chunk = chunksResult.chunks.find((c: any) => c.chunk_id === match.chunk_id)
-          if (!chunk) continue
-
           // Find episode for this chunk
-          const episode = episodesResult.episodes.find((e: any) => e.episode_id === chunk.episode_id)
+          const episode = episodesResult.episodes.find((e: any) => e.episode_id === match.episode_id)
           if (!episode) continue
 
           // Calculate days_after_listen
@@ -118,7 +123,7 @@ const processExpressionsStep = createStep({
           const daysAfterListen = (expressionDate.getTime() - lastListenDate.getTime()) / (1000 * 60 * 60 * 24)
 
           await safeExecuteTool(createInfluenceLink, {
-            episode_id: chunk.episode_id,
+            episode_id: match.episode_id,
             expression_id: expression.expression_id,
             chunk_id: match.chunk_id,
             similarity: match.similarity,

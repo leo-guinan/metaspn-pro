@@ -65,19 +65,18 @@ jobs:
             docker pull ghcr.io/${{ github.repository }}/backend:${{ github.sha }}
             docker pull ghcr.io/${{ github.repository }}/frontend:${{ github.sha }}
             
-            # Tag images for docker-compose
+            # Tag images for docker compose
             docker tag ghcr.io/${{ github.repository }}/backend:${{ github.sha }} metaspn-backend:latest
             docker tag ghcr.io/${{ github.repository }}/frontend:${{ github.sha }} metaspn-frontend:latest
             
             # Run database migrations
             echo "🔄 Running database migrations..."
-            docker-compose -f docker-compose.prod.yml run --rm backend node -r tsx/register scripts/run-migrations.sh || \
-            docker-compose -f docker-compose.prod.yml exec -T postgres psql -U ${{ secrets.POSTGRES_USER }} -d ${{ secrets.POSTGRES_DB }} -f /opt/metaspn/scripts/run-migrations.sh || \
+            docker compose -f docker-compose.prod.yml run --rm backend /scripts/run-migrations.sh || \
             echo "⚠️  Migration script not found, skipping..."
             
             # Deploy new containers
             echo "🚀 Deploying new containers..."
-            docker-compose -f docker-compose.prod.yml up -d --no-deps backend frontend worker
+            docker compose -f docker-compose.prod.yml up -d --no-deps backend frontend worker
             
             # Wait for health checks
             echo "⏳ Waiting for services to be healthy..."
@@ -94,6 +93,8 @@ jobs:
             # Clean up old images
             echo "🧹 Cleaning up old images..."
             docker image prune -f
+            
+            echo "✅ Deployment complete!"
             
             echo "✅ Deployment complete!"
 

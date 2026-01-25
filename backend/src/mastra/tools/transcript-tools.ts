@@ -2,6 +2,8 @@ import { createTool } from '@mastra/core/tools'
 import { z } from 'zod'
 import { pool } from '../../db'
 import OpenAI from 'openai'
+import { getTranscriptChunksCollection } from '../../services/chroma.js'
+import { randomUUID } from 'crypto'
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -295,7 +297,7 @@ export const generateEmbeddings = createTool({
 
 export const storeTranscriptChunks = createTool({
   id: 'store_transcript_chunks',
-  description: 'Store transcript chunks with embeddings in the database using pgvector.',
+  description: 'Store transcript chunks: text in PostgreSQL, embeddings in Chroma Cloud.',
   inputSchema: z.object({
     episode_id: z.string().uuid(),
     chunks_with_embeddings: z.array(
@@ -314,15 +316,87 @@ export const storeTranscriptChunks = createTool({
   execute: async ({ context }: any) => {
     const { episode_id, chunks_with_embeddings } = context
 
-    // Delete existing chunks for this episode
+    // Get Chroma collection
+    const collection = await getTranscriptChunksCollection()
+
+    // Delete existing chunks for this episode from PostgreSQL
+    const existingChunks = await pool.query(
+      'SELECT chroma_id FROM transcript_chunks WHERE episode_id = $1 AND chroma_id IS NOT NULL',
+      [episode_id]
+    )
+    
+    if (existingChunks.rows.length > 0) {
+      const chromaIds = existingChunks.rows.map((r) => r.chroma_id)
+      // Delete from Chroma
+      try {
+        await collection.delete({ ids: chromaIds })
+      } catch (error) {
+        console.warn('Error deleting from Chroma (may not exist):', error)
+      }
+    }
+    
     await pool.query('DELETE FROM transcript_chunks WHERE episode_id = $1', [episode_id])
 
-    // Insert new chunks
+    if (chunks_with_embeddings.length === 0) {
+      return { stored_count: 0, success: true }
+    }
+
+    // Prepare data for Chroma
+    const chromaIds: string[] = []
+    const embeddings: number[][] = []
+    const metadatas: any[] = []
+    const documents: string[] = []
+
+    // Prepare data for PostgreSQL
+    const dbInserts: Array<{
+      chunk_id: string
+      episode_id: string
+      start_sec: number
+      end_sec: number
+      text: string
+      chroma_id: string
+    }> = []
+
     for (const chunk of chunks_with_embeddings) {
+      const chunkId = randomUUID()
+      chromaIds.push(chunkId)
+      embeddings.push(chunk.embedding)
+      documents.push(chunk.text)
+      metadatas.push({
+        episode_id,
+        start_sec: chunk.start_sec.toString(),
+        end_sec: chunk.end_sec.toString(),
+      })
+
+      dbInserts.push({
+        chunk_id: chunkId,
+        episode_id,
+        start_sec: chunk.start_sec,
+        end_sec: chunk.end_sec,
+        text: chunk.text,
+        chroma_id: chunkId,
+      })
+    }
+
+    // Insert into Chroma
+    try {
+      await collection.add({
+        ids: chromaIds,
+        embeddings,
+        metadatas,
+        documents,
+      })
+    } catch (error) {
+      console.error('Error adding to Chroma:', error)
+      throw new Error(`Failed to store embeddings in Chroma: ${error}`)
+    }
+
+    // Insert into PostgreSQL (text only, no embeddings)
+    for (const insert of dbInserts) {
       await pool.query(
-        `INSERT INTO transcript_chunks (episode_id, start_sec, end_sec, text, embedding)
-         VALUES ($1, $2, $3, $4, $5::vector)`,
-        [episode_id, chunk.start_sec, chunk.end_sec, chunk.text, JSON.stringify(chunk.embedding)]
+        `INSERT INTO transcript_chunks (chunk_id, episode_id, start_sec, end_sec, text, chroma_id)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [insert.chunk_id, insert.episode_id, insert.start_sec, insert.end_sec, insert.text, insert.chroma_id]
       )
     }
 

@@ -1,6 +1,7 @@
 import { createTool } from '@mastra/core/tools'
 import { z } from 'zod'
 import { pool } from '../../db'
+import { getTranscriptChunksCollection } from '../../services/chroma.js'
 
 export const findRecentEpisodes = createTool({
   id: 'find_recent_episodes',
@@ -50,9 +51,10 @@ export const findRecentEpisodes = createTool({
 
 export const getTranscriptChunks = createTool({
   id: 'get_transcript_chunks',
-  description: 'Retrieve transcript chunks for episodes with their embeddings.',
+  description: 'Retrieve transcript chunks for episodes. Returns text from PostgreSQL, embeddings fetched from Chroma if needed.',
   inputSchema: z.object({
     episode_ids: z.array(z.string().uuid()),
+    include_embeddings: z.boolean().default(false),
   }),
   outputSchema: z.object({
     chunks: z.array(
@@ -62,95 +64,164 @@ export const getTranscriptChunks = createTool({
         start_sec: z.number(),
         end_sec: z.number(),
         text: z.string(),
-        embedding: z.array(z.number()),
+        embedding: z.array(z.number()).optional(),
       })
     ),
   }),
   execute: async ({ context }: any) => {
-    const { episode_ids } = context
+    const { episode_ids, include_embeddings } = context
 
     if (episode_ids.length === 0) {
       return { chunks: [] }
     }
 
+    // Get chunks from PostgreSQL
     const placeholders = episode_ids.map((_: any, i: number) => `$${i + 1}`).join(',')
     const result = await pool.query(
-      `SELECT chunk_id, episode_id, start_sec, end_sec, text, embedding
+      `SELECT chunk_id, episode_id, start_sec, end_sec, text, chroma_id
        FROM transcript_chunks
        WHERE episode_id IN (${placeholders})
        ORDER BY episode_id, start_sec`,
       episode_ids
     )
 
-    return {
-      chunks: result.rows.map((row) => ({
-        chunk_id: row.chunk_id,
-        episode_id: row.episode_id,
-        start_sec: parseFloat(row.start_sec),
-        end_sec: parseFloat(row.end_sec),
-        text: row.text,
-        embedding: Array.isArray(row.embedding) ? row.embedding : JSON.parse(row.embedding),
-      })),
+    const chunks = result.rows.map((row) => ({
+      chunk_id: row.chunk_id,
+      episode_id: row.episode_id,
+      start_sec: parseFloat(row.start_sec),
+      end_sec: parseFloat(row.end_sec),
+      text: row.text,
+    }))
+
+    // If embeddings are needed, fetch from Chroma
+    if (include_embeddings) {
+      const collection = await getTranscriptChunksCollection()
+      const chromaIds = result.rows
+        .filter((r) => r.chroma_id)
+        .map((r) => r.chroma_id)
+
+      if (chromaIds.length > 0) {
+        try {
+          const chromaResults = await collection.get({ ids: chromaIds })
+          const embeddingMap = new Map<string, number[]>()
+          
+          if (chromaResults.embeddings) {
+            chromaIds.forEach((id, idx) => {
+              if (chromaResults.embeddings && chromaResults.embeddings[idx]) {
+                embeddingMap.set(id, chromaResults.embeddings[idx] as number[])
+              }
+            })
+          }
+
+          // Add embeddings to chunks
+          chunks.forEach((chunk) => {
+            const row = result.rows.find((r) => r.chunk_id === chunk.chunk_id)
+            if (row?.chroma_id && embeddingMap.has(row.chroma_id)) {
+              chunk.embedding = embeddingMap.get(row.chroma_id)!
+            }
+          })
+        } catch (error) {
+          console.warn('Error fetching embeddings from Chroma:', error)
+        }
+      }
     }
+
+    return { chunks }
   },
 })
 
-export const computeSimilarity = createTool({
-  id: 'compute_similarity',
-  description: 'Compute cosine similarity between expression embedding and transcript chunk embeddings using pgvector.',
+export const findSimilarChunks = createTool({
+  id: 'find_similar_chunks',
+  description: 'Find similar transcript chunks using Chroma Cloud vector search.',
   inputSchema: z.object({
     expression_embedding: z.array(z.number()),
-    chunk_embeddings: z.array(
-      z.object({
-        chunk_id: z.string().uuid(),
-        embedding: z.array(z.number()),
-      })
-    ),
+    episode_ids: z.array(z.string().uuid()).optional(),
+    limit: z.number().default(10),
     threshold: z.number().default(0.3),
   }),
   outputSchema: z.object({
     matches: z.array(
       z.object({
         chunk_id: z.string().uuid(),
+        episode_id: z.string().uuid(),
+        start_sec: z.number(),
+        end_sec: z.number(),
+        text: z.string(),
         similarity: z.number(),
       })
     ),
   }),
   execute: async ({ context }: any) => {
-    const { expression_embedding, chunk_embeddings, threshold } = context
+    const { expression_embedding, episode_ids, limit, threshold } = context
+    const collection = await getTranscriptChunksCollection()
 
-    // Cosine similarity function
-    const cosineSimilarity = (a: number[], b: number[]): number => {
-      if (a.length !== b.length) return 0
-
-      let dotProduct = 0
-      let normA = 0
-      let normB = 0
-
-      for (let i = 0; i < a.length; i++) {
-        dotProduct += a[i] * b[i]
-        normA += a[i] * a[i]
-        normB += b[i] * b[i]
-      }
-
-      const denominator = Math.sqrt(normA) * Math.sqrt(normB)
-      return denominator === 0 ? 0 : dotProduct / denominator
+    // Build where clause for Chroma
+    const where: any = {}
+    if (episode_ids && episode_ids.length > 0) {
+      where.episode_id = { $in: episode_ids }
     }
 
-    const matches: Array<{ chunk_id: string; similarity: number }> = []
+    // Query Chroma for similar chunks
+    const results = await collection.query({
+      queryEmbeddings: [expression_embedding],
+      nResults: limit,
+      where: Object.keys(where).length > 0 ? where : undefined,
+    })
 
-    for (const chunk of chunk_embeddings) {
-      const similarity = cosineSimilarity(expression_embedding, chunk.embedding)
-      if (similarity >= threshold) {
-        matches.push({
+    // Get chunk IDs and similarities from Chroma results
+    const chromaIds = results.ids[0] || []
+    // Chroma returns distances (lower is more similar), convert to similarity (higher is more similar)
+    const distances = results.distances?.[0] || []
+    const similarities = distances.map((d: number) => 1 - d) // Convert distance to similarity
+    const metadatas = results.metadatas?.[0] || []
+
+    if (chromaIds.length === 0) {
+      return { matches: [] }
+    }
+
+    // Fetch full chunk data from PostgreSQL using chroma_id
+    const placeholders = chromaIds.map((_: string, i: number) => `$${i + 1}`).join(',')
+    const dbResult = await pool.query(
+      `SELECT chunk_id, episode_id, start_sec, end_sec, text
+       FROM transcript_chunks
+       WHERE chroma_id IN (${placeholders})`,
+      chromaIds
+    )
+
+    // Create a map of chroma_id to database row
+    const chunkMap = new Map<string, any>()
+    dbResult.rows.forEach((row) => {
+      // Find the chroma_id that matches this chunk
+      const idx = chromaIds.findIndex((id) => {
+        // Match by checking if metadata episode_id and start_sec match
+        const metadata = metadatas[chromaIds.indexOf(id)]
+        return (
+          metadata?.episode_id === row.episode_id &&
+          parseFloat(metadata?.start_sec || '0') === parseFloat(row.start_sec)
+        )
+      })
+      if (idx >= 0) {
+        chunkMap.set(chromaIds[idx], { ...row, similarity: similarities[idx] })
+      }
+    })
+
+    // Combine Chroma results with PostgreSQL data
+    const matches = chromaIds
+      .map((chromaId, idx) => {
+        const chunk = chunkMap.get(chromaId)
+        if (!chunk) return null
+
+        return {
           chunk_id: chunk.chunk_id,
-          similarity,
-        })
-      }
-    }
-
-    // Sort by similarity descending
-    matches.sort((a, b) => b.similarity - a.similarity)
+          episode_id: chunk.episode_id,
+          start_sec: parseFloat(chunk.start_sec),
+          end_sec: parseFloat(chunk.end_sec),
+          text: chunk.text,
+          similarity: chunk.similarity || similarities[idx] || 0,
+        }
+      })
+      .filter((m): m is NonNullable<typeof m> => m !== null && m.similarity >= threshold)
+      .sort((a, b) => b.similarity - a.similarity) // Sort by similarity descending
 
     return { matches }
   },

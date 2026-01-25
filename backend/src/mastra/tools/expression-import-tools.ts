@@ -2,6 +2,8 @@ import { createTool } from '@mastra/core/tools'
 import { z } from 'zod'
 import { pool } from '../../db'
 import OpenAI from 'openai'
+import { getExpressionsCollection } from '../../services/chroma.js'
+import { randomUUID } from 'crypto'
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -31,18 +33,41 @@ export const createExpression = createTool({
     })
 
     const embedding = embeddingResponse.data[0].embedding
+    const expressionId = randomUUID()
+    const timestamp = timestamp_utc || new Date().toISOString()
 
-    // Insert expression
+    // Store embedding in Chroma
+    const collection = await getExpressionsCollection()
+    try {
+      await collection.add({
+        ids: [expressionId],
+        embeddings: [embedding],
+        documents: [text],
+        metadatas: [
+          {
+            user_id,
+            timestamp_utc: timestamp,
+            source,
+          },
+        ],
+      })
+    } catch (error) {
+      console.error('Error storing expression in Chroma:', error)
+      throw new Error(`Failed to store embedding in Chroma: ${error}`)
+    }
+
+    // Insert expression in PostgreSQL (text only, reference to Chroma)
     const result = await pool.query(
-      `INSERT INTO expressions (user_id, timestamp_utc, text, source, embedding, metadata)
-       VALUES ($1, $2, $3, $4, $5::vector, $6)
+      `INSERT INTO expressions (expression_id, user_id, timestamp_utc, text, source, chroma_id, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING expression_id`,
       [
+        expressionId,
         user_id,
-        timestamp_utc || new Date().toISOString(),
+        timestamp,
         text,
         source,
-        JSON.stringify(embedding),
+        expressionId, // chroma_id is the same as expression_id
         JSON.stringify(metadata || {}),
       ]
     )

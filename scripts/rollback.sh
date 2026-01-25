@@ -22,7 +22,7 @@ cd "$APP_DIR" || {
 
 # Stop current containers
 echo "🛑 Stopping current containers..."
-docker-compose -f "$COMPOSE_FILE" stop backend frontend worker
+docker compose -f "$COMPOSE_FILE" stop backend frontend worker
 
 # Get previous image tags
 PREVIOUS_BACKEND_TAG=$(docker images --format "{{.Tag}}" metaspn-backend | grep -v latest | head -1)
@@ -31,7 +31,7 @@ PREVIOUS_FRONTEND_TAG=$(docker images --format "{{.Tag}}" metaspn-frontend | gre
 if [ -z "$PREVIOUS_BACKEND_TAG" ] || [ -z "$PREVIOUS_FRONTEND_TAG" ]; then
     echo -e "${RED}❌ No previous images found for rollback${NC}"
     echo "Attempting to restart with current images..."
-    docker-compose -f "$COMPOSE_FILE" up -d
+    docker compose -f "$COMPOSE_FILE" up -d
     exit 1
 fi
 
@@ -45,7 +45,7 @@ docker tag "metaspn-frontend:${PREVIOUS_FRONTEND_TAG}" metaspn-frontend:latest
 
 # Start containers with previous images
 echo "🚀 Starting containers with previous images..."
-docker-compose -f "$COMPOSE_FILE" up -d --no-deps backend frontend worker
+docker compose -f "$COMPOSE_FILE" up -d --no-deps backend frontend worker
 
 # Wait for services
 echo "⏳ Waiting for services to start..."

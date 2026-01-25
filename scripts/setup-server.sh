@@ -2,7 +2,26 @@
 set -e
 
 # Server hardening script for Hetzner production deployment
+# Designed for Ubuntu 24.04 LTS (Noble Numbat)
 # Run this script as root on a fresh Hetzner server
+
+# Verify Ubuntu version
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    if [ "$ID" != "ubuntu" ] || [ "$VERSION_ID" != "24.04" ]; then
+        echo "⚠️  Warning: This script is designed for Ubuntu 24.04 LTS"
+        echo "   Detected: $PRETTY_NAME"
+        read -p "Continue anyway? (y/N) " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            exit 1
+        fi
+    else
+        echo "✅ Detected Ubuntu 24.04 LTS - proceeding..."
+    fi
+else
+    echo "⚠️  Warning: Could not detect OS version"
+fi
 
 echo "🔒 Starting server hardening process..."
 
@@ -11,15 +30,16 @@ echo "📦 Updating system packages..."
 apt-get update
 apt-get upgrade -y
 
-# Install essential packages
+# Install essential packages (excluding Docker - installed separately)
 echo "📦 Installing essential packages..."
 apt-get install -y \
     ufw \
     fail2ban \
     unattended-upgrades \
     apt-listchanges \
-    docker.io \
-    docker-compose \
+    ca-certificates \
+    gnupg \
+    lsb-release \
     certbot \
     python3-certbot-nginx \
     htop \
@@ -28,6 +48,23 @@ apt-get install -y \
     git \
     vim \
     logrotate
+
+# Install Docker using official Docker repository (recommended for Ubuntu 24.04)
+echo "🐳 Installing Docker..."
+# Add Docker's official GPG key
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+chmod a+r /etc/apt/keyrings/docker.gpg
+
+# Set up Docker repository
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+  tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+# Install Docker Engine and Docker Compose plugin
+apt-get update
+apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
 # Configure automatic security updates
 echo "🔄 Configuring automatic security updates..."
@@ -169,16 +206,21 @@ cat > /etc/logrotate.d/metaspn <<EOF
     create 0640 metaspn metaspn
     sharedscripts
     postrotate
-        docker-compose -f /opt/metaspn/docker-compose.prod.yml restart backend frontend worker || true
+        docker compose -f /opt/metaspn/docker-compose.prod.yml restart backend frontend worker || true
     endscript
 }
 EOF
 
 echo "✅ Server hardening complete!"
 echo ""
+echo "System Information:"
+echo "  OS: $(lsb_release -d | cut -f2)"
+echo "  Docker: $(docker --version)"
+echo "  Docker Compose: $(docker compose version)"
+echo ""
 echo "Next steps:"
 echo "1. Add your SSH public key to /home/metaspn/.ssh/authorized_keys"
 echo "2. Configure production environment variables in /etc/metaspn/.env.prod"
 echo "3. Clone the repository to /opt/metaspn"
 echo "4. Set up SSL certificates with certbot"
-echo "5. Start the application with docker-compose"
+echo "5. Start the application with docker compose -f docker-compose.prod.yml up -d"

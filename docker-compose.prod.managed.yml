@@ -2,42 +2,8 @@ version: '3.8'
 
 # Production Docker Compose for Managed Services Architecture
 # Uses Neon.tech (PostgreSQL) and Chroma Cloud (Vector DB) - no local database
-# Note: This replaces the previous version that included PostgreSQL
 
 services:
-  # PostgreSQL service removed - using Neon.tech managed database
-  # postgres:
-    image: pgvector/pgvector:pg16
-    container_name: metaspn-postgres-prod
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-metaspn}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB:-metaspn}
-      PGDATA: /var/lib/postgresql/data/pgdata
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-      - ./database/postgresql.conf:/etc/postgresql/postgresql.conf:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-metaspn}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-    networks:
-      - metaspn-network
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          cpus: '2'
-          memory: 2G
-        reservations:
-          cpus: '0.5'
-          memory: 512M
-    # Don't expose port 5432 externally in production
-    # Only accessible within Docker network
-
   backend:
     build:
       context: .
@@ -46,15 +12,18 @@ services:
     container_name: metaspn-backend-prod
     environment:
       # Neon.tech PostgreSQL connection
-      DATABASE_URL: ${DATABASE_URL}  # From Neon.tech connection string
+      DATABASE_URL: ${DATABASE_URL}  # From Neon.tech
       # Chroma Cloud
       CHROMA_API_URL: ${CHROMA_API_URL:-https://api.trychroma.com}
       CHROMA_API_KEY: ${CHROMA_API_KEY}
+      # API Keys
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       NODE_ENV: production
+      # Authentication
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      # OAuth
       TWITTER_CLIENT_ID: ${TWITTER_CLIENT_ID}
       TWITTER_CLIENT_SECRET: ${TWITTER_CLIENT_SECRET}
       TWITTER_CALLBACK_URL: ${TWITTER_CALLBACK_URL}
@@ -66,18 +35,17 @@ services:
       FRONTEND_URL: ${FRONTEND_URL}
     ports:
       - "127.0.0.1:3001:3001"  # Only bind to localhost (nginx will proxy)
-    # No depends_on - database is external (Neon.tech)
     networks:
       - metaspn-network
     restart: unless-stopped
     deploy:
       resources:
         limits:
-          cpus: '2'
-          memory: 2G
+          cpus: '1'      # Reduced - no local database
+          memory: 256M   # Reduced - no local database
         reservations:
-          cpus: '0.5'
-          memory: 512M
+          cpus: '0.25'
+          memory: 128M
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
       interval: 30s
@@ -104,8 +72,7 @@ services:
     ports:
       - "127.0.0.1:3000:3000"  # Only bind to localhost (nginx will proxy)
     depends_on:
-      backend:
-        condition: service_healthy
+      - backend
     networks:
       - metaspn-network
     restart: unless-stopped
@@ -146,11 +113,9 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       NODE_ENV: production
       GITHUB_PUSH_CRON: ${GITHUB_PUSH_CRON:-0 */6 * * *}
-    # Worker needs tsx to run TypeScript, install it and run worker
     command: ["sh", "-c", "cd /app/backend && pnpm add -D tsx && pnpm exec tsx src/worker.ts"]
     depends_on:
       - backend
-    # No postgres dependency - database is external (Neon.tech)
     networks:
       - metaspn-network
     restart: unless-stopped
@@ -168,11 +133,9 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # Database backup service removed - Neon.tech handles backups automatically
-
-volumes:
-  # No local database volumes needed
-
 networks:
   metaspn-network:
     driver: bridge
+
+# Note: No PostgreSQL service - using Neon.tech
+# Note: No backup service - Neon handles backups automatically

@@ -6,8 +6,8 @@ A web-first intelligence layer for podcast listening that transforms raw listeni
 
 - **Frontend**: Next.js 14+ (App Router) with React, TypeScript, Tailwind CSS
 - **Backend**: Mastra framework for agent-native architecture
-- **Database**: Postgres with pgvector extension
-- **Infrastructure**: Vercel (frontend), Railway/Fly.io (Mastra backend)
+- **Database**: Neon.tech (PostgreSQL) + Chroma Cloud (Vector DB)
+- **Infrastructure**: Hetzner (production server), Neon.tech (database), Chroma Cloud (vectors)
 
 ## Getting Started
 
@@ -24,7 +24,7 @@ docker-compose up
 ```
 
 This will start:
-- Postgres with pgvector (port 5432)
+- Postgres (port 5432) - local development only
 - Backend API (port 3001)
 - Frontend (port 3000)
 
@@ -39,7 +39,9 @@ See [DOCKER.md](./DOCKER.md) for detailed Docker setup instructions.
 **Prerequisites:**
 - Node.js 18+
 - pnpm 8.15.9+
-- PostgreSQL 14+ with pgvector extension
+- PostgreSQL 14+ (for local development)
+- Neon.tech account (for production)
+- Chroma Cloud account (for production vector storage)
 - Redis (optional, for caching)
 
 **Installation:**

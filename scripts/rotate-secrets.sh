@@ -81,4 +81,4 @@ chmod 600 "$ENV_FILE"
 
 echo "✅ Secret rotation complete!"
 echo "⚠️  Remember to restart services after rotating secrets:"
-echo "   docker-compose -f /opt/metaspn/docker-compose.prod.yml restart"
+echo "   docker compose -f /opt/metaspn/docker-compose.prod.yml restart"

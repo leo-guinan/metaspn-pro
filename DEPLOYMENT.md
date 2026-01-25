@@ -4,7 +4,7 @@ This guide covers the complete process of deploying MetaSPN Pro to a Hetzner ser
 
 ## Prerequisites
 
-- Hetzner Cloud or Dedicated Server (Ubuntu 22.04+ recommended)
+- Hetzner Cloud or Dedicated Server (Ubuntu 24.04 LTS recommended)
 - Domain name pointing to your server's IP address
 - GitHub repository with GitHub Actions enabled
 - SSH access to the server
@@ -14,8 +14,8 @@ This guide covers the complete process of deploying MetaSPN Pro to a Hetzner ser
 
 ### 1. Provision Hetzner Server
 
-- Create a new server (minimum 2 vCPU, 4GB RAM recommended)
-- Choose Ubuntu 22.04 LTS
+- Create a new server (minimum 2 vCPU, 2GB RAM for managed services setup)
+- Choose **Ubuntu 24.04 LTS (Noble Numbat)** - this is the recommended version
 - Set up SSH key authentication
 - Note your server's IP address
 
@@ -41,15 +41,40 @@ This script will:
 
 ### 3. Configure SSH Access
 
-Add your SSH public key to the `metaspn` user:
+**IMPORTANT:** Set up SSH key authentication **BEFORE** running the setup script, as it will disable password authentication.
 
-```bash
-sudo mkdir -p /home/metaspn/.ssh
-sudo cp ~/.ssh/authorized_keys /home/metaspn/.ssh/
-sudo chown -R metaspn:metaspn /home/metaspn/.ssh
-sudo chmod 700 /home/metaspn/.ssh
-sudo chmod 600 /home/metaspn/.ssh/authorized_keys
-```
+See [SSH_SETUP.md](./SSH_SETUP.md) for a complete walkthrough.
+
+**Quick version:**
+1. Generate SSH key on your local machine (if you don't have one):
+   ```bash
+   ssh-keygen -t ed25519 -C "your_email@example.com"
+   ```
+
+2. Add key to Hetzner Cloud Console → Security → SSH Keys (recommended)
+   OR manually add to server:
+   ```bash
+   ssh root@your-server-ip
+   mkdir -p ~/.ssh
+   echo "YOUR_PUBLIC_KEY" >> ~/.ssh/authorized_keys
+   chmod 700 ~/.ssh
+   chmod 600 ~/.ssh/authorized_keys
+   ```
+
+3. Test SSH key authentication works:
+   ```bash
+   ssh root@your-server-ip
+   # Should connect without asking for password
+   ```
+
+4. After setup script runs, add key to `metaspn` user:
+   ```bash
+   sudo mkdir -p /home/metaspn/.ssh
+   echo "YOUR_PUBLIC_KEY" | sudo tee -a /home/metaspn/.ssh/authorized_keys
+   sudo chmod 700 /home/metaspn/.ssh
+   sudo chmod 600 /home/metaspn/.ssh/authorized_keys
+   sudo chown -R metaspn:metaspn /home/metaspn/.ssh
+   ```
 
 ### 4. Clone Repository
 
@@ -140,30 +165,32 @@ In GitHub → Settings → Environments → New environment → `production`:
 
 ```bash
 cd /opt/metaspn
-sudo docker-compose -f docker-compose.prod.yml build
-sudo docker-compose -f docker-compose.prod.yml up -d
+sudo docker compose -f docker-compose.prod.yml build
+sudo docker compose -f docker-compose.prod.yml up -d
 ```
 
 ### 2. Run Database Migrations
 
 ```bash
-sudo docker-compose -f docker-compose.prod.yml exec backend /scripts/run-migrations.sh
+sudo docker compose -f docker-compose.prod.yml exec backend /scripts/run-migrations.sh
 ```
 
-Or manually:
+Or manually (if using local PostgreSQL for development):
 
 ```bash
-sudo docker-compose -f docker-compose.prod.yml exec postgres psql -U metaspn -d metaspn -f /opt/metaspn/database/schema.sql
+sudo docker compose -f docker-compose.prod.yml exec postgres psql -U metaspn -d metaspn -f /opt/metaspn/database/schema.sql
 ```
+
+**Note:** For production with Neon.tech, run migrations directly against your Neon database connection string.
 
 ### 3. Verify Deployment
 
 ```bash
 # Check container status
-sudo docker-compose -f docker-compose.prod.yml ps
+sudo docker compose -f docker-compose.prod.yml ps
 
 # Check logs
-sudo docker-compose -f docker-compose.prod.yml logs -f
+sudo docker compose -f docker-compose.prod.yml logs -f
 
 # Run health checks
 sudo /opt/metaspn/scripts/health-check.sh
@@ -260,7 +287,7 @@ sudo /opt/metaspn/scripts/backup-all.sh
 
 ### Automated Backups
 
-Backups run automatically via the `db-backup` service in docker-compose.prod.yml. Configure retention in `.env.prod`:
+**Note:** With Neon.tech, backups are handled automatically. No local backup service needed.
 
 ```bash
 BACKUP_RETENTION_DAYS=30
@@ -282,8 +309,8 @@ Deployments are automated via GitHub Actions. For manual updates:
 ```bash
 cd /opt/metaspn
 sudo git pull
-sudo docker-compose -f docker-compose.prod.yml build
-sudo docker-compose -f docker-compose.prod.yml up -d
+sudo docker compose -f docker-compose.prod.yml build
+sudo docker compose -f docker-compose.prod.yml up -d
 ```
 
 ### Rotate Secrets

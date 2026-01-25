@@ -51,7 +51,7 @@ cat > /etc/logrotate.d/metaspn <<EOF
     sharedscripts
     postrotate
         # Reload containers to reopen log files
-        docker-compose -f /opt/metaspn/docker-compose.prod.yml restart backend frontend worker || true
+        docker compose -f /opt/metaspn/docker-compose.prod.yml restart backend frontend worker || true
     endscript
 }
 
@@ -91,7 +91,7 @@ case "$SERVICE" in
         docker logs -f metaspn-nginx-prod 2>/dev/null || echo "Nginx container not found"
         ;;
     all)
-        docker-compose -f /opt/metaspn/docker-compose.prod.yml logs -f
+        docker compose -f /opt/metaspn/docker-compose.prod.yml logs -f
         ;;
     *)
         echo "Usage: $0 [backend|frontend|worker|postgres|nginx|all]"
