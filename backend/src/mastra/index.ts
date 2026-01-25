@@ -87,6 +87,9 @@ export const mastra = new Mastra({
   tools: toolsObj,
   agents: agentsObj,
   workflows: workflowsObj,
+  server: {
+    port: 3001, // Use port 3001 instead of default 4111
+  },
 })
 
 // Export all tools, agents, and workflows

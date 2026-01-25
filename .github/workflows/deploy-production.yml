@@ -139,6 +139,7 @@ jobs:
               "scripts/check-deployment-permissions.sh"
               "scripts/fix-nginx.sh"
               "scripts/check-backend-health.sh"
+              "scripts/check-backend-startup.sh"
             )
             
             for script in "${SCRIPTS[@]}"; do
