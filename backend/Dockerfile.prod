@@ -42,7 +42,8 @@ COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml* ./
 COPY backend/package.json ./backend/
 
 # Install production dependencies only
-RUN pnpm install --frozen-lockfile --prod
+# Skip prepare script (husky) since it's not needed in production
+RUN pnpm install --frozen-lockfile --prod --ignore-scripts
 
 # Copy built application from builder
 COPY --from=builder /app/backend/.mastra ./backend/.mastra
