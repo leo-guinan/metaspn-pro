@@ -29,6 +29,9 @@ importers:
       '@mastra/hono':
         specifier: ^1.0.1
         version: 1.0.1(@mastra/core@1.0.4)(@types/express@5.0.6)(express@5.2.1)(zod@3.25.76)
+      chromadb:
+        specifier: ^3.2.2
+        version: 3.2.2
       dotenv:
         specifier: ^16.4.5
         version: 16.6.1
@@ -50,9 +53,6 @@ importers:
       pg:
         specifier: ^8.11.3
         version: 8.17.2
-      pgvector:
-        specifier: ^0.1.8
-        version: 0.1.8
       rss-parser:
         specifier: ^3.13.0
         version: 3.13.0
@@ -2225,6 +2225,65 @@ packages:
     optionalDependencies:
       fsevents: 2.3.3
     dev: true
+
+  /chromadb-js-bindings-darwin-arm64@1.2.1:
+    resolution: {integrity: sha512-h/xk938Dt/WRUdt8RN/YGMn3BPcRYH0M0dzoEL5R7ZEZRsrdUsGCKtvwUuVMFuh7Zi7+nmE79I2m7cqnFHh7oQ==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [darwin]
+    requiresBuild: true
+    dev: false
+    optional: true
+
+  /chromadb-js-bindings-darwin-x64@1.2.1:
+    resolution: {integrity: sha512-yIlee4W36hw3g2nn85dbYsggda3kzse47/3My8+bsa2dFH/W/LPpQlVy1kWEZMffRV8GHt1Zrpsv83TApIcggw==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [darwin]
+    requiresBuild: true
+    dev: false
+    optional: true
+
+  /chromadb-js-bindings-linux-arm64-gnu@1.2.1:
+    resolution: {integrity: sha512-oAJSsiXhlgWOmIG7gMu16YjI2n2Vz8NSsooCq/ZnkEYoYbaU0KQZmMLLh0dFt63SEAHrabfTttwDhIjIkJ+/dw==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [linux]
+    requiresBuild: true
+    dev: false
+    optional: true
+
+  /chromadb-js-bindings-linux-x64-gnu@1.2.1:
+    resolution: {integrity: sha512-hu9Wg8J9narhYDbckNtTT4H3xt7oN37XMKjC2YenA8JFxaPDT8JXoX3NcA/64eqi33SB8tf7Dn12Ys90Jp60GA==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [linux]
+    requiresBuild: true
+    dev: false
+    optional: true
+
+  /chromadb-js-bindings-win32-x64-msvc@1.2.1:
+    resolution: {integrity: sha512-4Eect14iwSNJ9vuh8PQMwKkf2YqlnIvcJ2h0wSEiCD4qUFw9WeSsNvP7U/fRiRhSMhEKBCNnhe0AGiOX9XMN2w==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [win32]
+    requiresBuild: true
+    dev: false
+    optional: true
+
+  /chromadb@3.2.2:
+    resolution: {integrity: sha512-0Jp0uX1cr74hcK3N/Uk55ae/lqjDi3PY3g0ggplojlLCJ1elwbTU4V1gfzDenxZLrqoFWvmRa7JZPAFBA0oklQ==}
+    engines: {node: '>=20'}
+    hasBin: true
+    dependencies:
+      semver: 7.7.3
+    optionalDependencies:
+      chromadb-js-bindings-darwin-arm64: 1.2.1
+      chromadb-js-bindings-darwin-x64: 1.2.1
+      chromadb-js-bindings-linux-arm64-gnu: 1.2.1
+      chromadb-js-bindings-linux-x64-gnu: 1.2.1
+      chromadb-js-bindings-win32-x64-msvc: 1.2.1
+    dev: false
 
   /clean-stack@2.2.0:
     resolution: {integrity: sha512-4diC9HaTE+KRAMWhDhrGOECgWZxoevMc5TlkObMqNSsVU62PYzXZ/SMTjzyGAFF1YusgxGcSWTEXBhp0CPwQ1A==}
@@ -4649,11 +4708,6 @@ packages:
     resolution: {integrity: sha512-FdW9r/jQZhSeohs1Z3sI1yxFQNFvMcnmfuj4WBMUTxOrAyLMaTcE1aAMBiTlbMNaXvBCQuVi0R7hd8udDSP7ug==}
     dependencies:
       split2: 4.2.0
-    dev: false
-
-  /pgvector@0.1.8:
-    resolution: {integrity: sha512-mD6aw+XYJrsuLl3Y8s8gHDDfOZQ9ERtfQPdhvjOrC7eOTM7b6sNkxeZxBhHwUdXMfHmyGWIbwU0QbmSnn7pPmg==}
-    engines: {node: '>= 12'}
     dev: false
 
   /picocolors@1.1.1:
