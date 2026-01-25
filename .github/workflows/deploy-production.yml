@@ -103,6 +103,16 @@ jobs:
             echo "Working directory: $(pwd)"
             echo "✅ SSH connection successful!"
 
+      - name: Copy docker-compose file to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.PRODUCTION_HOST }}
+          username: ${{ secrets.PRODUCTION_USER }}
+          key: ${{ secrets.PRODUCTION_SSH_KEY }}
+          port: ${{ secrets.PRODUCTION_SSH_PORT || 22 }}
+          source: "docker-compose.prod.yml"
+          target: "/opt/metaspn/"
+
       - name: Deploy to server
         uses: appleboy/ssh-action@v1.0.0
         with:
