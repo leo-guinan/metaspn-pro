@@ -122,8 +122,9 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       NODE_ENV: production
       GITHUB_PUSH_CRON: ${GITHUB_PUSH_CRON:-0 */6 * * *}
-    # Worker needs tsx to run TypeScript, install it and run worker
-    command: ["sh", "-c", "cd /app/backend && pnpm add -D tsx && pnpm exec tsx src/worker.ts"]
+    # Worker uses tsx to run TypeScript directly (tsx is installed in production image)
+    # Use node_modules path directly to avoid pnpm store location issues
+    command: ["sh", "-c", "cd /app/backend && node node_modules/.bin/tsx src/worker.ts || node ../node_modules/.bin/tsx src/worker.ts"]
     depends_on:
       - backend
     # No postgres dependency - database is external (Neon.tech)

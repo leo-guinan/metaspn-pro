@@ -41,9 +41,11 @@ COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml* ./
 # Copy backend package.json
 COPY backend/package.json ./backend/
 
-# Install production dependencies only
+# Install production dependencies + tsx (needed for worker)
 # Skip prepare script (husky) since it's not needed in production
-RUN pnpm install --frozen-lockfile --prod --ignore-scripts
+# Install tsx as a production dependency so worker can run TypeScript
+RUN pnpm install --frozen-lockfile --prod --ignore-scripts && \
+    pnpm add tsx --save-prod --ignore-scripts
 
 # Copy built application from builder
 # Mastra bundles everything into .mastra/output directory
