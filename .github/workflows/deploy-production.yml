@@ -137,6 +137,8 @@ jobs:
             SCRIPTS=(
               "scripts/debug-domain.sh"
               "scripts/check-deployment-permissions.sh"
+              "scripts/fix-nginx.sh"
+              "scripts/check-backend-health.sh"
             )
             
             for script in "${SCRIPTS[@]}"; do
@@ -305,18 +307,30 @@ jobs:
             
             # Start Nginx (reverse proxy)
             echo "🚀 Starting Nginx..."
+            
+            # Copy SSL certificates to Nginx location (if they exist)
+            if [ -f /etc/letsencrypt/live/pro.metaspn.network/fullchain.pem ]; then
+              echo "📋 Copying SSL certificates..."
+              mkdir -p /etc/nginx/ssl
+              cp /etc/letsencrypt/live/pro.metaspn.network/fullchain.pem /etc/nginx/ssl/ 2>/dev/null || true
+              cp /etc/letsencrypt/live/pro.metaspn.network/privkey.pem /etc/nginx/ssl/ 2>/dev/null || true
+              chmod 600 /etc/nginx/ssl/* 2>/dev/null || true
+              echo "✅ SSL certificates ready"
+            else
+              echo "⚠️  SSL certificates not found - Nginx may fail to start"
+            fi
+            
             # Build Nginx image first (since it's not in registry)
             docker compose -f docker-compose.prod.yml build nginx || {
               echo "⚠️  Failed to build Nginx image"
               echo "   💡 This may be due to missing nginx directory or Dockerfile"
+              echo "   💡 Run: bash /opt/metaspn/scripts/fix-nginx.sh to fix manually"
             }
             
             # Start Nginx container
             docker compose -f docker-compose.prod.yml --env-file "$ENV_FILE" up -d --no-deps nginx || {
-              echo "⚠️  Failed to start Nginx (may need SSL certificates first)"
-              echo "   💡 If SSL certs don't exist, run: sudo certbot certonly --standalone -d pro.metaspn.network"
-              echo "   💡 Then copy certs: sudo mkdir -p /etc/nginx/ssl && sudo cp /etc/letsencrypt/live/pro.metaspn.network/*.pem /etc/nginx/ssl/"
-              echo "   💡 Then restart: docker compose -f docker-compose.prod.yml restart nginx"
+              echo "⚠️  Failed to start Nginx"
+              echo "   💡 Run: bash /opt/metaspn/scripts/fix-nginx.sh to diagnose and fix"
               # Don't fail deployment if Nginx fails - services are still accessible on localhost
             }
             
