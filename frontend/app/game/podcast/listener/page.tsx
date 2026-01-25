@@ -123,11 +123,8 @@ export default function ListenerPage() {
       await loadPodcasts()
       setShowAddForm(false)
       
-      // Show success message if available
-      if (result.message) {
-        // You could add a toast notification here
-        console.log('Success:', result.message)
-      }
+      // Show success message
+      console.log('Successfully added podcast:', result.podcast_id)
     } catch (err: any) {
       console.error('Add podcast error:', err)
       // Extract error message from response

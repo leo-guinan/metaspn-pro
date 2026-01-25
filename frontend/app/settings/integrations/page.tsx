@@ -20,7 +20,7 @@ type Repo = {
 }
 
 export default function IntegrationsPage() {
-  const { user, accounts, linkAccount, unlinkAccount, refreshUser } = useAuth()
+  const { user, accounts, linkAccount, refreshUser } = useAuth()
   const router = useRouter()
   const searchParams = useSearchParams()
   const [repos, setRepos] = useState<Repo[]>([])
@@ -123,7 +123,9 @@ export default function IntegrationsPage() {
         return
       }
 
-      const payload: Parameters<typeof githubIntegrationsApi.connect>[0] = {}
+      const payload: Parameters<typeof githubIntegrationsApi.connect>[0] = {
+        user_id: user.user_id,
+      }
       if (usePat && pat) {
         payload.personal_access_token = pat
       } else if (oauthCode) {

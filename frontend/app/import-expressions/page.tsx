@@ -16,7 +16,7 @@ export default function ImportExpressionsPage() {
   const [importedCount, setImportedCount] = useState(0)
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = e.target.files?.[0]
+    const selectedFile = e.target.files?.[0] || null
     setFile(selectedFile)
     setError(null)
     setSuccess(false)
@@ -44,7 +44,7 @@ export default function ImportExpressionsPage() {
         ? '/api/expressions/import/twitter'
         : '/api/expressions/import/bluesky'
 
-      const result = await apiRequest(endpoint, {
+      const result = await apiRequest<{ imported_count?: number; success?: boolean }>(endpoint, {
         method: 'POST',
         body: JSON.stringify({
           user_id: user.user_id,
