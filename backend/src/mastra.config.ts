@@ -1,6 +1,3 @@
-// Mastra config - minimal config for now
-// Full configuration can be added later as needed
-export default {
-  name: 'metaspn-pro',
-  version: '0.1.0',
-}
+// Legacy config file - re-export from mastra/index.ts
+// The CLI now looks for src/mastra/index.ts directly
+export { mastra } from './mastra/index'

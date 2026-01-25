@@ -1,7 +1,6 @@
+// Mastra config - exports the Mastra instance
+// The CLI looks for this file (src/mastra/index.ts) to export a Mastra instance
 import { Mastra } from '@mastra/core/mastra'
-import config from '../mastra.config'
-
-// Import all tools, agents, and workflows
 import * as toolsModule from './tools'
 import * as agentsModule from './agents'
 import * as workflowsModule from './workflows'
@@ -24,9 +23,7 @@ function isValidMastraEntity(item: any, requireId: boolean = true): boolean {
 function getModuleEntities(module: any): any[] {
   try {
     return Object.values(module).filter((item: any) => {
-      // Filter out functions, primitives, and non-entity objects
       if (!item || typeof item !== 'object') return false
-      // Check if it looks like a Mastra entity (has id or name property)
       return 'id' in item || 'name' in item
     })
   } catch {
@@ -85,27 +82,14 @@ const workflowsObj = workflows.reduce((acc, workflow) => {
   return acc
 }, {} as Record<string, any>)
 
-// Export configured Mastra instance with error handling
-let mastra: Mastra
-try {
-  mastra = new Mastra({
-    ...config,
-    tools: toolsObj,
-    agents: agentsObj,
-    workflows: workflowsObj,
-  } as any)
-} catch (error) {
-  console.error('Failed to create Mastra instance:', error)
-  // Create a minimal instance to prevent crashes
-  mastra = new Mastra({
-    ...config,
-    tools: {},
-    agents: {},
-    workflows: {},
-  } as any)
-}
-
-export { mastra }
+// Export configured Mastra instance - this is what the CLI expects
+export const mastra = new Mastra({
+  name: 'metaspn-pro',
+  version: '0.1.0',
+  tools: toolsObj,
+  agents: agentsObj,
+  workflows: workflowsObj,
+})
 
 // Export all tools, agents, and workflows
 export * from './tools'
