@@ -103,7 +103,7 @@ jobs:
             echo "Working directory: $(pwd)"
             echo "✅ SSH connection successful!"
 
-      - name: Copy docker-compose file to server
+      - name: Copy docker-compose file and scripts to server
         uses: appleboy/ssh-action@v1.0.0
         with:
           host: ${{ secrets.PRODUCTION_HOST }}
@@ -112,7 +112,7 @@ jobs:
           port: ${{ secrets.PRODUCTION_SSH_PORT || 22 }}
           script: |
             # Ensure directory exists
-            mkdir -p /opt/metaspn
+            mkdir -p /opt/metaspn/scripts
             
             # Download docker-compose.prod.yml from GitHub raw content
             curl -sL "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/docker-compose.prod.yml" \
@@ -131,6 +131,34 @@ jobs:
             }
             
             echo "✅ docker-compose.prod.yml updated and validated"
+            
+            # Download scripts from repository
+            echo "📥 Downloading scripts..."
+            SCRIPTS=(
+              "scripts/debug-domain.sh"
+              "scripts/check-deployment-permissions.sh"
+            )
+            
+            for script in "${SCRIPTS[@]}"; do
+              script_name=$(basename "$script")
+              curl -sL "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/$script" \
+                -o "/opt/metaspn/scripts/$script_name" && \
+              chmod +x "/opt/metaspn/scripts/$script_name" && \
+              echo "✅ Downloaded $script_name" || \
+              echo "⚠️  Failed to download $script_name (may not exist yet)"
+            done
+            
+            # Download Nginx configuration files (needed for building Nginx image)
+            echo "📥 Downloading Nginx configuration..."
+            mkdir -p /opt/metaspn/nginx/conf.d
+            curl -sL "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/nginx/nginx.conf" \
+              -o /opt/metaspn/nginx/nginx.conf && \
+            curl -sL "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/nginx/conf.d/metaspn.conf" \
+              -o /opt/metaspn/nginx/conf.d/metaspn.conf && \
+            curl -sL "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/nginx/Dockerfile" \
+              -o /opt/metaspn/nginx/Dockerfile && \
+            echo "✅ Nginx configuration downloaded" || \
+            echo "⚠️  Failed to download Nginx configuration (Nginx may not build)"
 
       - name: Deploy to server
         uses: appleboy/ssh-action@v1.0.0
@@ -182,13 +210,8 @@ jobs:
               fi
             fi
             
-            # Create backup of .env file before any operations (if it's in /opt/metaspn)
+            # Ensure .env file is protected (read-only for owner, no access for others)
             if [ "$ENV_FILE" = "/opt/metaspn/.env" ] && [ -f "$ENV_FILE" ]; then
-              echo "💾 Backing up .env file..."
-              cp "$ENV_FILE" "$ENV_FILE.backup.$(date +%Y%m%d_%H%M%S)" || {
-                echo "⚠️  Could not create .env backup, but continuing..."
-              }
-              # Ensure .env file is protected (read-only for owner, no access for others)
               chmod 600 "$ENV_FILE" || true
             fi
             
@@ -282,10 +305,18 @@ jobs:
             
             # Start Nginx (reverse proxy)
             echo "🚀 Starting Nginx..."
+            # Build Nginx image first (since it's not in registry)
+            docker compose -f docker-compose.prod.yml build nginx || {
+              echo "⚠️  Failed to build Nginx image"
+              echo "   💡 This may be due to missing nginx directory or Dockerfile"
+            }
+            
+            # Start Nginx container
             docker compose -f docker-compose.prod.yml --env-file "$ENV_FILE" up -d --no-deps nginx || {
               echo "⚠️  Failed to start Nginx (may need SSL certificates first)"
               echo "   💡 If SSL certs don't exist, run: sudo certbot certonly --standalone -d pro.metaspn.network"
               echo "   💡 Then copy certs: sudo mkdir -p /etc/nginx/ssl && sudo cp /etc/letsencrypt/live/pro.metaspn.network/*.pem /etc/nginx/ssl/"
+              echo "   💡 Then restart: docker compose -f docker-compose.prod.yml restart nginx"
               # Don't fail deployment if Nginx fails - services are still accessible on localhost
             }
             
@@ -311,35 +342,16 @@ jobs:
             echo "🧹 Cleaning up old images..."
             docker image prune -f
             
-            # Verify .env file still exists after deployment (only if we're using /opt/metaspn/.env)
-            if [ "$ENV_FILE" = "/opt/metaspn/.env" ]; then
-              if [ ! -f "$ENV_FILE" ]; then
-                echo "❌ CRITICAL: .env file was removed during deployment!"
-                echo "🔄 Restoring from backup..."
-                LATEST_BACKUP=$(ls -t "$ENV_FILE.backup."* 2>/dev/null | head -1)
-                if [ -n "$LATEST_BACKUP" ] && [ -f "$LATEST_BACKUP" ]; then
-                  cp "$LATEST_BACKUP" "$ENV_FILE"
-                  chmod 600 "$ENV_FILE"
-                  echo "✅ .env file restored from backup"
-                else
-                  echo "❌ No backup found! Manual intervention required."
-                  exit 1
-                fi
-              else
-                echo "✅ .env file verified - still present after deployment"
-              fi
-              
-              # Clean up old .env backups (keep last 5)
-              echo "🧹 Cleaning up old .env backups (keeping last 5)..."
-              ls -t "$ENV_FILE.backup."* 2>/dev/null | tail -n +6 | xargs rm -f 2>/dev/null || true
+            # Verify .env file still exists after deployment
+            if [ ! -f "$ENV_FILE" ]; then
+              echo "❌ CRITICAL: $ENV_FILE was removed during deployment!"
+              echo "   💡 Restore from /etc/metaspn/.env.prod if needed:"
+              echo "      sudo cp /etc/metaspn/.env.prod $ENV_FILE"
+              echo "      sudo chown metaspn:metaspn $ENV_FILE"
+              echo "      sudo chmod 600 $ENV_FILE"
+              exit 1
             else
-              # Using /etc/metaspn/.env.prod - verify it still exists
-              if [ ! -f "$ENV_FILE" ]; then
-                echo "❌ CRITICAL: $ENV_FILE was removed! This should not happen."
-                exit 1
-              else
-                echo "✅ $ENV_FILE verified - still present (root-owned, secure location)"
-              fi
+              echo "✅ .env file verified - still present after deployment"
             fi
             
             echo "✅ Deployment complete!"

@@ -150,6 +150,7 @@ services:
       dockerfile: ./nginx/Dockerfile
     image: metaspn-nginx:latest
     container_name: metaspn-nginx-prod
+    pull_policy: build
     ports:
       - "80:80"
       - "443:443"
