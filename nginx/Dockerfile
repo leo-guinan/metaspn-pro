@@ -1,8 +1,9 @@
 FROM nginx:alpine
 
 # Copy nginx configuration
-COPY nginx.conf /etc/nginx/nginx.conf
-COPY conf.d/ /etc/nginx/conf.d/
+# Note: Build context is the repo root, so paths are relative to that
+COPY nginx/nginx.conf /etc/nginx/nginx.conf
+COPY nginx/conf.d/ /etc/nginx/conf.d/
 
 # Create SSL directory (certificates will be mounted)
 RUN mkdir -p /etc/nginx/ssl

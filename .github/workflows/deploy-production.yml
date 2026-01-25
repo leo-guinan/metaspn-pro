@@ -151,6 +151,7 @@ jobs:
             done
             
             # Download Nginx configuration files (needed for building Nginx image)
+            # Note: Files must be in nginx/ subdirectory to match Dockerfile COPY paths
             echo "📥 Downloading Nginx configuration..."
             mkdir -p /opt/metaspn/nginx/conf.d
             curl -sL "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/nginx/nginx.conf" \
