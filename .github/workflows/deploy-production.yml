@@ -104,14 +104,33 @@ jobs:
             echo "✅ SSH connection successful!"
 
       - name: Copy docker-compose file to server
-        uses: appleboy/scp-action@v0.1.7
+        uses: appleboy/ssh-action@v1.0.0
         with:
           host: ${{ secrets.PRODUCTION_HOST }}
           username: ${{ secrets.PRODUCTION_USER }}
           key: ${{ secrets.PRODUCTION_SSH_KEY }}
           port: ${{ secrets.PRODUCTION_SSH_PORT || 22 }}
-          source: "docker-compose.prod.yml"
-          target: "/opt/metaspn/"
+          script: |
+            # Ensure directory exists
+            mkdir -p /opt/metaspn
+            
+            # Download docker-compose.prod.yml from GitHub raw content
+            curl -sL "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/docker-compose.prod.yml" \
+              -o /opt/metaspn/docker-compose.prod.yml
+            
+            # Verify file was downloaded
+            if [ ! -f /opt/metaspn/docker-compose.prod.yml ]; then
+              echo "❌ Failed to download docker-compose.prod.yml"
+              exit 1
+            fi
+            
+            # Validate YAML syntax
+            docker compose -f /opt/metaspn/docker-compose.prod.yml config > /dev/null 2>&1 || {
+              echo "❌ Invalid YAML in docker-compose.prod.yml"
+              exit 1
+            }
+            
+            echo "✅ docker-compose.prod.yml updated and validated"
 
       - name: Deploy to server
         uses: appleboy/ssh-action@v1.0.0
