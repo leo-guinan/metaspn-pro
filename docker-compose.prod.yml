@@ -1,5 +1,3 @@
-version: '3.8'
-
 # Production Docker Compose for Managed Services Architecture
 # Uses Neon.tech (PostgreSQL) and Chroma Cloud (Vector DB) - no local database
 # Note: This replaces the previous version that included PostgreSQL

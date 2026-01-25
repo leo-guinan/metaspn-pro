@@ -144,6 +144,13 @@ jobs:
             set -e
             cd /opt/metaspn
             
+            # Verify .env file exists
+            if [ ! -f .env ]; then
+              echo "❌ .env file not found at /opt/metaspn/.env"
+              echo "⚠️  Please ensure the .env file is created on the server with all required variables"
+              exit 1
+            fi
+            
             # Pull latest images
             echo "📥 Pulling latest images..."
             docker pull ghcr.io/${{ github.repository }}/backend:${{ github.sha }}
@@ -153,31 +160,69 @@ jobs:
             docker tag ghcr.io/${{ github.repository }}/backend:${{ github.sha }} metaspn-backend:latest
             docker tag ghcr.io/${{ github.repository }}/frontend:${{ github.sha }} metaspn-frontend:latest
             
-            # Run database migrations
-            echo "🔄 Running database migrations..."
-            docker compose -f docker-compose.prod.yml run --rm backend /scripts/run-migrations.sh || \
-            echo "⚠️  Migration script not found, skipping..."
+            # Stop existing containers gracefully
+            echo "🛑 Stopping existing containers..."
+            docker compose -f docker-compose.prod.yml down --timeout 30 || true
             
-            # Deploy new containers
+            # Deploy new containers (Docker Compose automatically loads .env from current directory)
             echo "🚀 Deploying new containers..."
-            docker compose -f docker-compose.prod.yml up -d --no-deps backend frontend worker
+            docker compose -f docker-compose.prod.yml --env-file .env up -d backend
             
-            # Wait for health checks
-            echo "⏳ Waiting for services to be healthy..."
-            sleep 30
+            # Wait for backend to be healthy
+            echo "⏳ Waiting for backend to be healthy..."
+            MAX_WAIT=120
+            ELAPSED=0
+            while [ $ELAPSED -lt $MAX_WAIT ]; do
+              if docker compose -f docker-compose.prod.yml ps backend | grep -q "healthy"; then
+                echo "✅ Backend is healthy!"
+                break
+              fi
+              
+              # Check if container crashed
+              if ! docker compose -f docker-compose.prod.yml ps backend | grep -q "Up"; then
+                echo "❌ Backend container is not running. Checking logs..."
+                docker compose -f docker-compose.prod.yml logs --tail=50 backend
+                exit 1
+              fi
+              
+              echo "  Waiting... ($ELAPSED/$MAX_WAIT seconds)"
+              sleep 5
+              ELAPSED=$((ELAPSED + 5))
+            done
             
-            # Health check
-            echo "🏥 Running health checks..."
-            /opt/metaspn/scripts/health-check.sh || {
-              echo "❌ Health check failed, rolling back..."
-              /opt/metaspn/scripts/rollback.sh
+            if [ $ELAPSED -ge $MAX_WAIT ]; then
+              echo "❌ Backend failed to become healthy within $MAX_WAIT seconds"
+              echo "📋 Backend logs:"
+              docker compose -f docker-compose.prod.yml logs --tail=100 backend
+              echo "📋 Backend container status:"
+              docker compose -f docker-compose.prod.yml ps backend
               exit 1
-            }
+            fi
+            
+            # Start frontend and worker
+            echo "🚀 Starting frontend and worker..."
+            docker compose -f docker-compose.prod.yml --env-file .env up -d frontend worker
+            
+            # Wait a bit for frontend to start
+            sleep 10
+            
+            # Verify all services are running
+            echo "🏥 Verifying all services..."
+            docker compose -f docker-compose.prod.yml ps
+            
+            # Test health endpoints
+            echo "🔍 Testing health endpoints..."
+            BACKEND_HEALTH=$(docker compose -f docker-compose.prod.yml exec -T backend node -e "require('http').get('http://localhost:3001/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})" 2>&1 || echo "failed")
+            if [ "$BACKEND_HEALTH" != "failed" ]; then
+              echo "✅ Backend health check passed"
+            else
+              echo "❌ Backend health check failed"
+              docker compose -f docker-compose.prod.yml logs --tail=50 backend
+              exit 1
+            fi
             
             # Clean up old images
             echo "🧹 Cleaning up old images..."
             docker image prune -f
-            
-            echo "✅ Deployment complete!"
             
             echo "✅ Deployment complete!"
