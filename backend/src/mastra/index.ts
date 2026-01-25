@@ -84,8 +84,6 @@ const workflowsObj = workflows.reduce((acc, workflow) => {
 
 // Export configured Mastra instance - this is what the CLI expects
 export const mastra = new Mastra({
-  name: 'metaspn-pro',
-  version: '0.1.0',
   tools: toolsObj,
   agents: agentsObj,
   workflows: workflowsObj,
