@@ -144,12 +144,21 @@ jobs:
             set -e
             cd /opt/metaspn
             
-            # Verify .env file exists
+            # Verify .env file exists and create backup
             if [ ! -f .env ]; then
               echo "❌ .env file not found at /opt/metaspn/.env"
               echo "⚠️  Please ensure the .env file is created on the server with all required variables"
               exit 1
             fi
+            
+            # Create backup of .env file before any operations
+            echo "💾 Backing up .env file..."
+            cp .env .env.backup.$(date +%Y%m%d_%H%M%S) || {
+              echo "⚠️  Could not create .env backup, but continuing..."
+            }
+            
+            # Ensure .env file is protected (read-only for owner, no access for others)
+            chmod 600 .env || true
             
             # Pull latest images
             echo "📥 Pulling latest images..."
@@ -221,8 +230,29 @@ jobs:
               exit 1
             fi
             
-            # Clean up old images
+            # Clean up old images (but NOT .env file or its backups)
             echo "🧹 Cleaning up old images..."
             docker image prune -f
+            
+            # Verify .env file still exists after deployment
+            if [ ! -f .env ]; then
+              echo "❌ CRITICAL: .env file was removed during deployment!"
+              echo "🔄 Restoring from backup..."
+              LATEST_BACKUP=$(ls -t .env.backup.* 2>/dev/null | head -1)
+              if [ -n "$LATEST_BACKUP" ] && [ -f "$LATEST_BACKUP" ]; then
+                cp "$LATEST_BACKUP" .env
+                chmod 600 .env
+                echo "✅ .env file restored from backup"
+              else
+                echo "❌ No backup found! Manual intervention required."
+                exit 1
+              fi
+            else
+              echo "✅ .env file verified - still present after deployment"
+            fi
+            
+            # Clean up old .env backups (keep last 5)
+            echo "🧹 Cleaning up old .env backups (keeping last 5)..."
+            ls -t .env.backup.* 2>/dev/null | tail -n +6 | xargs rm -f 2>/dev/null || true
             
             echo "✅ Deployment complete!"
