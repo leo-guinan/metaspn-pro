@@ -144,21 +144,53 @@ jobs:
             set -e
             cd /opt/metaspn
             
-            # Verify .env file exists and create backup
-            if [ ! -f .env ]; then
-              echo "❌ .env file not found at /opt/metaspn/.env"
+            # Check for .env file in multiple locations
+            ENV_FILE=""
+            if [ -f /etc/metaspn/.env.prod ]; then
+              echo "📋 Found .env file at /etc/metaspn/.env.prod (root-owned, secure location)"
+              ENV_FILE="/etc/metaspn/.env.prod"
+            elif [ -f /opt/metaspn/.env ]; then
+              echo "📋 Found .env file at /opt/metaspn/.env"
+              ENV_FILE="/opt/metaspn/.env"
+            else
+              echo "❌ .env file not found!"
+              echo "⚠️  Expected locations:"
+              echo "   - /etc/metaspn/.env.prod (recommended, root-owned)"
+              echo "   - /opt/metaspn/.env"
               echo "⚠️  Please ensure the .env file is created on the server with all required variables"
               exit 1
             fi
             
-            # Create backup of .env file before any operations
-            echo "💾 Backing up .env file..."
-            cp .env .env.backup.$(date +%Y%m%d_%H%M%S) || {
-              echo "⚠️  Could not create .env backup, but continuing..."
-            }
+            # If using /etc/metaspn/.env.prod, verify we can read it
+            if [ "$ENV_FILE" = "/etc/metaspn/.env.prod" ]; then
+              if [ ! -r "$ENV_FILE" ]; then
+                echo "⚠️  Cannot read $ENV_FILE (permission denied)"
+                echo ""
+                echo "💡 SOLUTION: Copy the .env file to /opt/metaspn/.env manually (one-time setup):"
+                echo "   Run this command ONCE on the server as root or with sudo:"
+                echo "   sudo cp /etc/metaspn/.env.prod /opt/metaspn/.env"
+                echo "   sudo chown metaspn:metaspn /opt/metaspn/.env"
+                echo "   sudo chmod 600 /opt/metaspn/.env"
+                echo ""
+                echo "   After that, the deployment will use /opt/metaspn/.env automatically."
+                echo ""
+                echo "❌ Deployment cannot proceed without readable .env file"
+                exit 1
+              else
+                # Can read it directly, use it
+                echo "✅ Can read $ENV_FILE directly"
+              fi
+            fi
             
-            # Ensure .env file is protected (read-only for owner, no access for others)
-            chmod 600 .env || true
+            # Create backup of .env file before any operations (if it's in /opt/metaspn)
+            if [ "$ENV_FILE" = "/opt/metaspn/.env" ] && [ -f "$ENV_FILE" ]; then
+              echo "💾 Backing up .env file..."
+              cp "$ENV_FILE" "$ENV_FILE.backup.$(date +%Y%m%d_%H%M%S)" || {
+                echo "⚠️  Could not create .env backup, but continuing..."
+              }
+              # Ensure .env file is protected (read-only for owner, no access for others)
+              chmod 600 "$ENV_FILE" || true
+            fi
             
             # Pull latest images
             echo "📥 Pulling latest images..."
@@ -173,9 +205,15 @@ jobs:
             echo "🛑 Stopping existing containers..."
             docker compose -f docker-compose.prod.yml down --timeout 30 || true
             
-            # Deploy new containers (Docker Compose automatically loads .env from current directory)
+            # Deploy new containers (use the ENV_FILE we found)
             echo "🚀 Deploying new containers..."
-            docker compose -f docker-compose.prod.yml --env-file .env up -d backend
+            if [ "$ENV_FILE" = "/etc/metaspn/.env.prod" ]; then
+              # Use the root-owned file directly
+              docker compose -f docker-compose.prod.yml --env-file "$ENV_FILE" up -d backend
+            else
+              # Use the file in /opt/metaspn
+              docker compose -f docker-compose.prod.yml --env-file "$ENV_FILE" up -d backend
+            fi
             
             # Wait for backend to be healthy
             echo "⏳ Waiting for backend to be healthy..."
@@ -210,7 +248,7 @@ jobs:
             
             # Start frontend and worker
             echo "🚀 Starting frontend and worker..."
-            docker compose -f docker-compose.prod.yml --env-file .env up -d frontend worker
+            docker compose -f docker-compose.prod.yml --env-file "$ENV_FILE" up -d frontend worker
             
             # Wait a bit for frontend to start
             sleep 10
@@ -234,25 +272,35 @@ jobs:
             echo "🧹 Cleaning up old images..."
             docker image prune -f
             
-            # Verify .env file still exists after deployment
-            if [ ! -f .env ]; then
-              echo "❌ CRITICAL: .env file was removed during deployment!"
-              echo "🔄 Restoring from backup..."
-              LATEST_BACKUP=$(ls -t .env.backup.* 2>/dev/null | head -1)
-              if [ -n "$LATEST_BACKUP" ] && [ -f "$LATEST_BACKUP" ]; then
-                cp "$LATEST_BACKUP" .env
-                chmod 600 .env
-                echo "✅ .env file restored from backup"
+            # Verify .env file still exists after deployment (only if we're using /opt/metaspn/.env)
+            if [ "$ENV_FILE" = "/opt/metaspn/.env" ]; then
+              if [ ! -f "$ENV_FILE" ]; then
+                echo "❌ CRITICAL: .env file was removed during deployment!"
+                echo "🔄 Restoring from backup..."
+                LATEST_BACKUP=$(ls -t "$ENV_FILE.backup."* 2>/dev/null | head -1)
+                if [ -n "$LATEST_BACKUP" ] && [ -f "$LATEST_BACKUP" ]; then
+                  cp "$LATEST_BACKUP" "$ENV_FILE"
+                  chmod 600 "$ENV_FILE"
+                  echo "✅ .env file restored from backup"
+                else
+                  echo "❌ No backup found! Manual intervention required."
+                  exit 1
+                fi
               else
-                echo "❌ No backup found! Manual intervention required."
-                exit 1
+                echo "✅ .env file verified - still present after deployment"
               fi
+              
+              # Clean up old .env backups (keep last 5)
+              echo "🧹 Cleaning up old .env backups (keeping last 5)..."
+              ls -t "$ENV_FILE.backup."* 2>/dev/null | tail -n +6 | xargs rm -f 2>/dev/null || true
             else
-              echo "✅ .env file verified - still present after deployment"
+              # Using /etc/metaspn/.env.prod - verify it still exists
+              if [ ! -f "$ENV_FILE" ]; then
+                echo "❌ CRITICAL: $ENV_FILE was removed! This should not happen."
+                exit 1
+              else
+                echo "✅ $ENV_FILE verified - still present (root-owned, secure location)"
+              fi
             fi
-            
-            # Clean up old .env backups (keep last 5)
-            echo "🧹 Cleaning up old .env backups (keeping last 5)..."
-            ls -t .env.backup.* 2>/dev/null | tail -n +6 | xargs rm -f 2>/dev/null || true
             
             echo "✅ Deployment complete!"
