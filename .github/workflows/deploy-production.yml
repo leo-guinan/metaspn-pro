@@ -53,6 +53,40 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Verify SSH key format
+        run: |
+          echo "🔍 Verifying SSH key format..."
+          if [ -z "${{ secrets.PRODUCTION_SSH_KEY }}" ]; then
+            echo "❌ PRODUCTION_SSH_KEY secret is empty!"
+            exit 1
+          fi
+          
+          # Check if key has proper headers
+          KEY="${{ secrets.PRODUCTION_SSH_KEY }}"
+          if echo "$KEY" | grep -q "BEGIN.*PRIVATE KEY"; then
+            echo "✅ Key has proper BEGIN/END markers"
+          else
+            echo "❌ Key missing BEGIN/END markers!"
+            echo "Key should start with: -----BEGIN OPENSSH PRIVATE KEY-----"
+            exit 1
+          fi
+          
+          # Extract and show key type
+          if echo "$KEY" | grep -q "BEGIN OPENSSH PRIVATE KEY"; then
+            echo "✅ Key type: OpenSSH format"
+          elif echo "$KEY" | grep -q "BEGIN RSA PRIVATE KEY"; then
+            echo "✅ Key type: RSA format"
+          else
+            echo "⚠️  Unknown key format"
+          fi
+          
+          # Show first and last lines (without exposing full key)
+          echo "Key preview (first 50 chars):"
+          echo "$KEY" | head -1 | cut -c1-50
+          echo "..."
+          echo "Key preview (last 50 chars):"
+          echo "$KEY" | tail -1 | cut -c1-50
+
       - name: Test SSH connection
         uses: appleboy/ssh-action@v1.0.0
         with:
@@ -61,6 +95,7 @@ jobs:
           key: ${{ secrets.PRODUCTION_SSH_KEY }}
           port: ${{ secrets.PRODUCTION_SSH_PORT || 22 }}
           debug: true
+          timeout: 30s
           script: |
             echo "🔍 Testing SSH connection..."
             echo "Hostname: $(hostname)"
