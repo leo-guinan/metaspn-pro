@@ -2,7 +2,7 @@ import { Agent } from '@mastra/core/agent'
 import {
   findRecentEpisodes,
   getTranscriptChunks,
-  computeSimilarity,
+  findSimilarChunks,
   createInfluenceLink,
 } from '../tools/influence-linking-tools'
 
@@ -26,7 +26,7 @@ export const influenceLinkingAgent = new Agent({
   tools: {
     findRecentEpisodes,
     getTranscriptChunks,
-    computeSimilarity,
+    findSimilarChunks,
     createInfluenceLink,
   },
 })

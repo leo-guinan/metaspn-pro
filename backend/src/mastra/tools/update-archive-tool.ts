@@ -1,7 +1,23 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
-import { saveTweetsToDatabase } from '../storage/tweet-converter';
-import { TweetDatabase } from '../storage/tweet-database';
+
+// Optional imports for SQLite storage (may not exist)
+let saveTweetsToDatabase: any = null;
+let TweetDatabase: any = null;
+
+try {
+  const tweetConverter = require('../storage/tweet-converter');
+  saveTweetsToDatabase = tweetConverter.saveTweetsToDatabase;
+} catch {
+  // Module not available, will skip SQLite storage
+}
+
+try {
+  const tweetDb = require('../storage/tweet-database');
+  TweetDatabase = tweetDb.TweetDatabase;
+} catch {
+  // Module not available, will skip SQLite storage
+}
 
 // Supabase configuration
 const SUPABASE_URL = 'https://fabxmporizzqflnftavs.supabase.co';
@@ -449,15 +465,22 @@ async function updateArchive(
     latestDate = new Date('2000-01-01T00:00:00Z');
   }
 
-  // Also check SQLite database for any newer tweets we've already saved
-  const db = new TweetDatabase(dbPath);
-  const dbLatestDateStr = db.getLatestTweetDate(username.toLowerCase());
-  if (dbLatestDateStr) {
-    const dbLatestDate = parseTwitterDate(dbLatestDateStr);
-    if (dbLatestDate > latestDate) {
-      latestDate = dbLatestDate;
-      latestDateBefore = latestDate.toISOString();
-      console.log(`[UpdateArchive] Using later date from SQLite: ${latestDateBefore}`);
+  // Also check SQLite database for any newer tweets we've already saved (if available)
+  let db: any = null;
+  if (TweetDatabase) {
+    try {
+      db = new TweetDatabase(dbPath);
+      const dbLatestDateStr = db.getLatestTweetDate(username.toLowerCase());
+      if (dbLatestDateStr) {
+        const dbLatestDate = parseTwitterDate(dbLatestDateStr);
+        if (dbLatestDate > latestDate) {
+          latestDate = dbLatestDate;
+          latestDateBefore = latestDate.toISOString();
+          console.log(`[UpdateArchive] Using later date from SQLite: ${latestDateBefore}`);
+        }
+      }
+    } catch (error) {
+      console.warn('[UpdateArchive] SQLite database not available, skipping:', error);
     }
   }
 
@@ -470,12 +493,12 @@ async function updateArchive(
   try {
     newTweetsData = await fetchNewTweets(accountId, queryDate);
   } catch (error) {
-    db.close();
+    if (db) db.close();
     return {
       success: false,
       username,
       newTweets: 0,
-      totalTweets: db.getTweetCount(username.toLowerCase()),
+      totalTweets: db ? db.getTweetCount(username.toLowerCase()) : 0,
       latestDateBefore,
       latestDateAfter: null,
       error:
@@ -486,9 +509,9 @@ async function updateArchive(
   }
 
   if (newTweetsData.length === 0) {
-    const totalTweets = db.getTweetCount(username.toLowerCase());
-    const latestDateAfterStr = db.getLatestTweetDate(username.toLowerCase());
-    db.close();
+    const totalTweets = db ? db.getTweetCount(username.toLowerCase()) : 0;
+    const latestDateAfterStr = db ? db.getLatestTweetDate(username.toLowerCase()) : null;
+    if (db) db.close();
     return {
       success: true,
       username,
@@ -501,12 +524,12 @@ async function updateArchive(
     };
   }
 
-  // Save new tweets directly to SQLite database
+  // Save new tweets directly to SQLite database (if available)
   let tweetsSaved = 0;
   let tweetsSkipped = 0;
   let tweetsErrors = 0;
 
-  if (newTweetsData.length > 0) {
+  if (newTweetsData.length > 0 && db) {
     try {
       console.log(`[UpdateArchive] Saving ${newTweetsData.length} new tweets to SQLite...`);
       
@@ -556,16 +579,18 @@ async function updateArchive(
       console.error('[UpdateArchive] Error saving tweets to database:', error);
       // Continue even if database save fails
     }
+  } else if (newTweetsData.length > 0 && !db) {
+    console.log(`[UpdateArchive] SQLite database not available, skipping local storage of ${newTweetsData.length} tweets`);
   }
 
   // Get updated stats from database
-  const totalTweets = db.getTweetCount(username.toLowerCase());
-  const latestDateAfterStr = db.getLatestTweetDate(username.toLowerCase());
+  const totalTweets = db ? db.getTweetCount(username.toLowerCase()) : newTweetsData.length;
+  const latestDateAfterStr = db ? db.getLatestTweetDate(username.toLowerCase()) : null;
   const latestDateAfter = latestDateAfterStr
     ? parseTwitterDate(latestDateAfterStr).toISOString()
-    : latestDateBefore;
+    : (newTweetsData.length > 0 ? newTweetsData[newTweetsData.length - 1].created_at : latestDateBefore);
 
-  db.close();
+  if (db) db.close();
 
   return {
     success: true,

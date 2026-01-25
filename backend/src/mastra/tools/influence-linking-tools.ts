@@ -113,11 +113,12 @@ export const getTranscriptChunks = createTool({
             })
           }
 
-          // Add embeddings to chunks
+          // Add embeddings to chunks (if needed)
           chunks.forEach((chunk) => {
             const row = result.rows.find((r) => r.chunk_id === chunk.chunk_id)
             if (row?.chroma_id && embeddingMap.has(row.chroma_id)) {
-              chunk.embedding = embeddingMap.get(row.chroma_id)!
+              // Type assertion needed since embedding is optional
+              ;(chunk as any).embedding = embeddingMap.get(row.chroma_id)!
             }
           })
         } catch (error) {
@@ -172,8 +173,10 @@ export const findSimilarChunks = createTool({
     const chromaIds = results.ids[0] || []
     // Chroma returns distances (lower is more similar), convert to similarity (higher is more similar)
     const distances = results.distances?.[0] || []
-    const similarities = distances.map((d: number) => 1 - d) // Convert distance to similarity
-    const metadatas = results.metadatas?.[0] || []
+    const similarities = distances
+      .filter((d): d is number => d !== null && d !== undefined)
+      .map((d: number) => 1 - d) // Convert distance to similarity
+    const metadatas = (results.metadatas?.[0] || []) as Array<Record<string, string | number | boolean> | null>
 
     if (chromaIds.length === 0) {
       return { matches: [] }
@@ -195,12 +198,15 @@ export const findSimilarChunks = createTool({
       const idx = chromaIds.findIndex((id) => {
         // Match by checking if metadata episode_id and start_sec match
         const metadata = metadatas[chromaIds.indexOf(id)]
+        if (!metadata) return false
+        const episodeId = String(metadata.episode_id || '')
+        const startSec = String(metadata.start_sec || '0')
         return (
-          metadata?.episode_id === row.episode_id &&
-          parseFloat(metadata?.start_sec || '0') === parseFloat(row.start_sec)
+          episodeId === row.episode_id &&
+          parseFloat(startSec) === parseFloat(row.start_sec)
         )
       })
-      if (idx >= 0) {
+      if (idx >= 0 && idx < similarities.length) {
         chunkMap.set(chromaIds[idx], { ...row, similarity: similarities[idx] })
       }
     })

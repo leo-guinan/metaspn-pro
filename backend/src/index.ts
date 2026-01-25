@@ -52,8 +52,8 @@ import {
 } from './mastra/tools/guest-management-tools.js'
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000'
-// OAuth store: state -> { user_id?, codeVerifier? (for Twitter), isLinking?: boolean }
-const oauthStore = new Map<string, { user_id?: string; codeVerifier?: string; isLinking?: boolean }>()
+// OAuth store: state -> { user_id?, codeVerifier? (for Twitter), isLinking?: boolean, token?: string }
+const oauthStore = new Map<string, { user_id?: string; codeVerifier?: string; isLinking?: boolean; token?: string }>()
 const OAUTH_TTL_MS = 10 * 60 * 1000
 
 function pruneOAuthStore() {
@@ -194,10 +194,10 @@ app.get('/api/auth/:provider/callback', async (c) => {
     }
 
     // Check if this is for integrations (has user_id but not isLinking flag)
-    if (entry.user_id && !entry.isLinking && !('token' in entry)) {
+    if (entry.user_id && !entry.isLinking && !entry.token) {
       // This is a GitHub integrations flow - store token and redirect to integrations page
       const { access_token } = accountData
-      oauthStore.set(state, { token: access_token, user_id: entry.user_id })
+      oauthStore.set(state, { ...entry, token: access_token })
       return c.redirect(`${FRONTEND_URL}/settings/integrations?github=complete&code=${encodeURIComponent(state)}`, 302)
     }
 
@@ -370,10 +370,10 @@ app.get('/api/integrations/github/callback', async (c) => {
     const state = c.req.query('state')
     if (!code || !state) return c.redirect(`${FRONTEND_URL}/settings/integrations?github=error&error=missing`)
     const entry = oauthStore.get(state)
-    if (!entry || !('user_id' in entry)) return c.redirect(`${FRONTEND_URL}/settings/integrations?github=error&error=invalid_state`)
+    if (!entry || !entry.user_id) return c.redirect(`${FRONTEND_URL}/settings/integrations?github=error&error=invalid_state`)
     const user_id = entry.user_id
     const { access_token } = await exchangeCodeForToken(code)
-    oauthStore.set(state, { token: access_token, user_id })
+    oauthStore.set(state, { ...entry, token: access_token })
     return c.redirect(`${FRONTEND_URL}/settings/integrations?github=complete&code=${encodeURIComponent(state)}`, 302)
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)
@@ -402,7 +402,7 @@ app.post('/api/integrations/github/connect', requireAuth, async (c) => {
       token = body.personal_access_token
     } else if (body.code) {
       const entry = oauthStore.get(body.code)
-      if (!entry || !('token' in entry)) return c.json({ error: 'Invalid or expired code' }, 400)
+      if (!entry || !entry.token) return c.json({ error: 'Invalid or expired code' }, 400)
       if (entry.user_id !== user_id) return c.json({ error: 'user_id mismatch' }, 400)
       token = entry.token
       oauthStore.delete(body.code)
