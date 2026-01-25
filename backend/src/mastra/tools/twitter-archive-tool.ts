@@ -1,6 +1,5 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
-// Note: saveTweetsToDatabase is imported dynamically when needed to avoid module errors during archive checks
 
 // Supabase configuration
 const SUPABASE_URL = 'https://fabxmporizzqflnftavs.supabase.co';
@@ -20,9 +19,6 @@ interface ArchiveResponse {
   size?: number; // Size in bytes
   error?: string;
   statusCode?: number;
-  tweetsSaved?: number;
-  tweetsSkipped?: number;
-  tweetsErrors?: number;
 }
 
 interface ArchiveData {
@@ -179,43 +175,11 @@ async function downloadUserArchive(
     // Parse JSON
     const archive = (await response.json()) as ArchiveData;
 
-    // Save tweets to SQLite database (optional - only if tweet-converter module exists)
-    let tweetsSaved = 0;
-    let tweetsSkipped = 0;
-    let tweetsErrors = 0;
-
-    if (archive.tweets && archive.tweets.length > 0) {
-      try {
-        // Dynamically import tweet-converter to avoid module errors during archive checks
-        const tweetConverterModule = await import('../storage/tweet-converter.js').catch(() => null);
-        if (tweetConverterModule?.saveTweetsToDatabase) {
-          // Get account_id for this username
-          const accountId = await getAccountId(username);
-          if (accountId) {
-            const result = tweetConverterModule.saveTweetsToDatabase(
-              archive.tweets as Array<{ tweet: unknown }>,
-              accountId,
-              username
-            );
-            tweetsSaved = result.saved;
-            tweetsSkipped = result.skipped;
-            tweetsErrors = result.errors;
-          }
-        }
-      } catch (error) {
-        console.error('Error saving tweets to database:', error);
-        // Continue even if database save fails
-      }
-    }
-
     return {
       success: true,
       username,
       archive,
       size,
-      tweetsSaved,
-      tweetsSkipped,
-      tweetsErrors,
     };
   } catch (error) {
     // Handle network errors, timeouts, etc.
@@ -276,18 +240,6 @@ export const twitterArchiveTool = createTool({
       .number()
       .optional()
       .describe('HTTP status code if request failed'),
-    tweetsSaved: z
-      .number()
-      .optional()
-      .describe('Number of tweets saved to SQLite database'),
-    tweetsSkipped: z
-      .number()
-      .optional()
-      .describe('Number of tweets skipped (already exist in database)'),
-    tweetsErrors: z
-      .number()
-      .optional()
-      .describe('Number of tweets that failed to save'),
   }),
   execute: async (inputData) => {
     return await downloadUserArchive(inputData.username);

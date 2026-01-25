@@ -1,4 +1,4 @@
-import jwt from 'jsonwebtoken'
+import jwt, { SignOptions } from 'jsonwebtoken'
 
 const JWT_SECRET: string = process.env.JWT_SECRET || process.env.NEXTAUTH_SECRET || 'dev-secret-change-in-production'
 const JWT_EXPIRES_IN: string = process.env.JWT_EXPIRES_IN || '7d'
@@ -17,9 +17,10 @@ export function generateToken(user_id: string, provider?: 'twitter' | 'github'):
     provider,
   }
 
+  // expiresIn accepts string (like "7d") or number (seconds)
   return jwt.sign(payload, JWT_SECRET, {
     expiresIn: JWT_EXPIRES_IN,
-  })
+  } as SignOptions)
 }
 
 // Verify and decode JWT token

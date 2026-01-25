@@ -1,24 +1,6 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 
-// Optional imports for SQLite storage (may not exist)
-let saveTweetsToDatabase: any = null;
-let TweetDatabase: any = null;
-
-try {
-  const tweetConverter = require('../storage/tweet-converter');
-  saveTweetsToDatabase = tweetConverter.saveTweetsToDatabase;
-} catch {
-  // Module not available, will skip SQLite storage
-}
-
-try {
-  const tweetDb = require('../storage/tweet-database');
-  TweetDatabase = tweetDb.TweetDatabase;
-} catch {
-  // Module not available, will skip SQLite storage
-}
-
 // Supabase configuration
 const SUPABASE_URL = 'https://fabxmporizzqflnftavs.supabase.co';
 const SUPABASE_ANON_KEY =
@@ -384,8 +366,7 @@ function convertTweetToArchiveFormat(
  * Update database with new tweets from Supabase
  */
 async function updateArchive(
-  username: string,
-  dbPath?: string
+  username: string
 ): Promise<{
   success: boolean;
   username: string;
@@ -393,9 +374,9 @@ async function updateArchive(
   totalTweets: number;
   latestDateBefore: string | null;
   latestDateAfter: string | null;
-  tweetsSaved?: number;
-  tweetsSkipped?: number;
-  tweetsErrors?: number;
+  archive?: {
+    tweets: Array<{ tweet: TweetData }>;
+  };
   error?: string;
 }> {
   // Get account_id
@@ -465,24 +446,6 @@ async function updateArchive(
     latestDate = new Date('2000-01-01T00:00:00Z');
   }
 
-  // Also check SQLite database for any newer tweets we've already saved (if available)
-  let db: any = null;
-  if (TweetDatabase) {
-    try {
-      db = new TweetDatabase(dbPath);
-      const dbLatestDateStr = db.getLatestTweetDate(username.toLowerCase());
-      if (dbLatestDateStr) {
-        const dbLatestDate = parseTwitterDate(dbLatestDateStr);
-        if (dbLatestDate > latestDate) {
-          latestDate = dbLatestDate;
-          latestDateBefore = latestDate.toISOString();
-          console.log(`[UpdateArchive] Using later date from SQLite: ${latestDateBefore}`);
-        }
-      }
-    } catch (error) {
-      console.warn('[UpdateArchive] SQLite database not available, skipping:', error);
-    }
-  }
 
   // Fetch new tweets - ensure we're using a date that will catch all new tweets
   // Subtract 1 second to ensure we don't miss tweets from the exact same timestamp
@@ -493,12 +456,11 @@ async function updateArchive(
   try {
     newTweetsData = await fetchNewTweets(accountId, queryDate);
   } catch (error) {
-    if (db) db.close();
     return {
       success: false,
       username,
       newTweets: 0,
-      totalTweets: db ? db.getTweetCount(username.toLowerCase()) : 0,
+      totalTweets: 0,
       latestDateBefore,
       latestDateAfter: null,
       error:
@@ -509,124 +471,56 @@ async function updateArchive(
   }
 
   if (newTweetsData.length === 0) {
-    const totalTweets = db ? db.getTweetCount(username.toLowerCase()) : 0;
-    const latestDateAfterStr = db ? db.getLatestTweetDate(username.toLowerCase()) : null;
-    if (db) db.close();
     return {
       success: true,
       username,
       newTweets: 0,
-      totalTweets,
+      totalTweets: 0,
       latestDateBefore,
-      latestDateAfter: latestDateAfterStr
-        ? parseTwitterDate(latestDateAfterStr).toISOString()
-        : latestDateBefore,
+      latestDateAfter: latestDateBefore,
     };
   }
 
-  // Save new tweets directly to SQLite database (if available)
-  let tweetsSaved = 0;
-  let tweetsSkipped = 0;
-  let tweetsErrors = 0;
+  // Convert tweets to archive format for pass-through to GitHub
+  const archiveTweets = newTweetsData
+    .map(convertTweetToArchiveFormat)
+    .filter((t): t is { tweet: TweetData } => t !== null);
 
-  if (newTweetsData.length > 0 && db) {
-    try {
-      console.log(`[UpdateArchive] Saving ${newTweetsData.length} new tweets to SQLite...`);
-      
-      for (const tweetData of newTweetsData) {
-        try {
-          // Convert to Twitter date format for storage
-          const createdAtIso = new Date(tweetData.created_at).toISOString();
-          const twitterDateStr = formatTwitterDate(new Date(tweetData.created_at));
-          
-          const success = db.saveTweet({
-            tweet_id: tweetData.tweet_id,
-            account_id: accountId,
-            username: username.toLowerCase(),
-            text: tweetData.full_text,
-            created_at: twitterDateStr, // Store in Twitter format
-            in_reply_to_status_id_str: tweetData.reply_to_tweet_id || undefined,
-            in_reply_to_user_id_str: tweetData.reply_to_user_id || undefined,
-            favorite_count: tweetData.favorite_count || 0,
-            retweet_count: tweetData.retweet_count || 0,
-          });
-
-          if (success) {
-            tweetsSaved++;
-          } else {
-            tweetsSkipped++; // Tweet might already exist (PRIMARY KEY constraint)
-          }
-        } catch (error) {
-          console.error(`[UpdateArchive] Error saving tweet ${tweetData.tweet_id}:`, error);
-          tweetsErrors++;
-        }
-      }
-      
-      // Log any missing parent tweets in the fetched batch
-      const fetchedTweetIds = new Set(newTweetsData.map(t => t.tweet_id));
-      const missingParents: string[] = [];
-      for (const tweet of newTweetsData) {
-        if (tweet.reply_to_tweet_id && !fetchedTweetIds.has(tweet.reply_to_tweet_id)) {
-          missingParents.push(`${tweet.tweet_id} -> ${tweet.reply_to_tweet_id}`);
-        }
-      }
-      if (missingParents.length > 0) {
-        console.warn(`[UpdateArchive] Found ${missingParents.length} tweets with missing parent IDs (parents not in fetched batch):`, missingParents.slice(0, 5));
-      }
-
-      console.log(`[UpdateArchive] Saved ${tweetsSaved} tweets, skipped ${tweetsSkipped}, errors ${tweetsErrors}`);
-    } catch (error) {
-      console.error('[UpdateArchive] Error saving tweets to database:', error);
-      // Continue even if database save fails
-    }
-  } else if (newTweetsData.length > 0 && !db) {
-    console.log(`[UpdateArchive] SQLite database not available, skipping local storage of ${newTweetsData.length} tweets`);
-  }
-
-  // Get updated stats from database
-  const totalTweets = db ? db.getTweetCount(username.toLowerCase()) : newTweetsData.length;
-  const latestDateAfterStr = db ? db.getLatestTweetDate(username.toLowerCase()) : null;
-  const latestDateAfter = latestDateAfterStr
-    ? parseTwitterDate(latestDateAfterStr).toISOString()
-    : (newTweetsData.length > 0 ? newTweetsData[newTweetsData.length - 1].created_at : latestDateBefore);
-
-  if (db) db.close();
+  const latestDateAfter = newTweetsData.length > 0 
+    ? newTweetsData[newTweetsData.length - 1].created_at 
+    : latestDateBefore;
 
   return {
     success: true,
     username,
-    newTweets: tweetsSaved,
-    totalTweets,
+    newTweets: archiveTweets.length,
+    totalTweets: archiveTweets.length,
     latestDateBefore,
-    latestDateAfter,
-    tweetsSaved,
-    tweetsSkipped,
-    tweetsErrors,
+    latestDateAfter: latestDateAfter || latestDateBefore,
+    archive: {
+      tweets: archiveTweets,
+    },
   };
 }
 
 export const updateArchiveTool = createTool({
   id: 'update-twitter-archive',
   description:
-    "Update a user's Twitter archive in the database by fetching and saving tweets posted after the latest tweet in the database. Queries Supabase for new tweets and saves them directly to SQLite.",
+    "Fetch new tweets from Supabase and convert them to archive format for pass-through to GitHub. Queries Supabase for tweets posted after the latest tweet in the existing archive.",
   inputSchema: z.object({
     username: z
       .string()
       .describe('Twitter username (without @) to update archive for'),
-    dbPath: z
-      .string()
-      .optional()
-      .describe('Optional path to the SQLite database file'),
   }),
   outputSchema: z.object({
     success: z.boolean().describe('Whether the update was successful'),
     username: z.string().describe('The username that was updated'),
     newTweets: z
       .number()
-      .describe('Number of new tweets saved to the database'),
+      .describe('Number of new tweets found'),
     totalTweets: z
       .number()
-      .describe('Total number of tweets in the database after update'),
+      .describe('Total number of new tweets in the archive'),
     latestDateBefore: z
       .string()
       .nullable()
@@ -635,21 +529,15 @@ export const updateArchiveTool = createTool({
       .string()
       .nullable()
       .describe('ISO date of the latest tweet after update'),
-    tweetsSaved: z
-      .number()
+    archive: z
+      .object({
+        tweets: z.array(z.object({ tweet: z.unknown() })),
+      })
       .optional()
-      .describe('Number of tweets saved to SQLite database'),
-    tweetsSkipped: z
-      .number()
-      .optional()
-      .describe('Number of tweets skipped (already exist in database)'),
-    tweetsErrors: z
-      .number()
-      .optional()
-      .describe('Number of tweets that failed to save'),
+      .describe('Archive JSON with new tweets in Twitter archive format'),
     error: z.string().optional().describe('Error message if update failed'),
   }),
   execute: async (inputData) => {
-    return await updateArchive(inputData.username, inputData.dbPath);
+    return await updateArchive(inputData.username);
   },
 });

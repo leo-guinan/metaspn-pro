@@ -1,0 +1,15 @@
+echo "🔍 Running type checks before push..."
+
+# Run type-check for both frontend and backend
+cd frontend && pnpm run type-check
+FRONTEND_EXIT=$?
+
+cd ../backend && pnpm run type-check
+BACKEND_EXIT=$?
+
+if [ $FRONTEND_EXIT -ne 0 ] || [ $BACKEND_EXIT -ne 0 ]; then
+  echo "❌ Type check failed! Please fix the errors before pushing."
+  exit 1
+fi
+
+echo "✅ Type checks passed!"
