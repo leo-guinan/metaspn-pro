@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx --tsconfig tsconfig.json src/index.ts",
     "dev:mastra": "npx mastra dev",
-    "build": "mastra build",
+    "build": "npx mastra build",
     "start": "node .mastra/index.mjs",
     "worker": "tsx --tsconfig tsconfig.json src/worker.ts",
     "type-check": "tsc --noEmit",
