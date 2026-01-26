@@ -7,10 +7,8 @@ services:
   # All database operations go through DATABASE_URL (Neon.tech connection string)
 
   backend:
-    build:
-      context: .
-      dockerfile: ./backend/Dockerfile.prod.simple
-    image: metaspn-backend:latest
+    image: ghcr.io/leo-guinan/metaspn-pro/backend:latest
+    pull_policy: always
     container_name: metaspn-backend-prod
     environment:
       # Neon.tech PostgreSQL connection
@@ -148,12 +146,9 @@ services:
   # Database backup service removed - Neon.tech handles backups automatically
 
   nginx:
-    build:
-      context: .
-      dockerfile: ./nginx/Dockerfile
     image: metaspn-nginx:latest
     container_name: metaspn-nginx-prod
-    pull_policy: build
+    pull_policy: always
     ports:
       - "80:80"
       - "443:443"

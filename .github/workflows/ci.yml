@@ -127,6 +127,18 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Build and push nginx image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./nginx/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ghcr.io/${{ github.repository }}/nginx:latest
+            ghcr.io/${{ github.repository }}/nginx:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
   security-scan:
     name: Security Scan
     runs-on: ubuntu-latest

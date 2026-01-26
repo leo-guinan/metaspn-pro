@@ -163,18 +163,7 @@ jobs:
               echo "⚠️  Failed to download $script_name (may not exist yet)"
             done
             
-            # Download Nginx configuration files (needed for building Nginx image)
-            # Note: Files must be in nginx/ subdirectory to match Dockerfile COPY paths
-            echo "📥 Downloading Nginx configuration..."
-            mkdir -p /opt/metaspn/nginx/conf.d
-            curl -sL "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/nginx/nginx.conf" \
-              -o /opt/metaspn/nginx/nginx.conf && \
-            curl -sL "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/nginx/conf.d/metaspn.conf" \
-              -o /opt/metaspn/nginx/conf.d/metaspn.conf && \
-            curl -sL "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/nginx/Dockerfile" \
-              -o /opt/metaspn/nginx/Dockerfile && \
-            echo "✅ Nginx configuration downloaded" || \
-            echo "⚠️  Failed to download Nginx configuration (Nginx may not build)"
+            # Note: Nginx image is built in CI and pulled from registry (no build on server = saves disk space)
 
       - name: Deploy to server
         uses: appleboy/ssh-action@v1.0.0
@@ -253,34 +242,28 @@ jobs:
               exit 1
             fi
             
-            # Check disk space before pulling images
-            echo "🔍 Checking disk space..."
+            # ALWAYS run cleanup before pulling images (prevent disk space issues)
+            echo "🧹 Running pre-deployment cleanup..."
+            # Remove unused images older than 24h (keep recent ones)
+            docker image prune -a -f --filter "until=24h" || docker image prune -a -f
+            # Remove unused containers
+            docker container prune -f
+            # Remove unused volumes (be careful - this removes unused volumes)
+            docker volume prune -f
+            # Remove build cache (this is safe - cache can be rebuilt)
+            docker builder prune -a -f --filter "until=12h" || docker builder prune -a -f
+            
+            # Check disk space after cleanup
             AVAILABLE_SPACE=$(df / | tail -1 | awk '{print $4}')
             AVAILABLE_SPACE_MB=$((AVAILABLE_SPACE / 1024))
-            echo "Available space: ${AVAILABLE_SPACE_MB}MB"
+            echo "Available space after cleanup: ${AVAILABLE_SPACE_MB}MB"
             
-            if [ $AVAILABLE_SPACE_MB -lt 2000 ]; then
-              echo "⚠️  WARNING: Less than 2GB available. Cleaning up Docker resources..."
-              # Remove unused images (keep last 2 versions)
-              docker image prune -a -f --filter "until=48h" || docker image prune -a -f
-              # Remove unused containers and volumes
-              docker container prune -f
-              docker volume prune -f
-              # Remove build cache
-              docker builder prune -a -f --filter "until=24h" || docker builder prune -a -f
-              
-              # Check again
-              AVAILABLE_SPACE=$(df / | tail -1 | awk '{print $4}')
-              AVAILABLE_SPACE_MB=$((AVAILABLE_SPACE / 1024))
-              echo "Available space after cleanup: ${AVAILABLE_SPACE_MB}MB"
-              
-              if [ $AVAILABLE_SPACE_MB -lt 1000 ]; then
-                echo "❌ ERROR: Still less than 1GB available after cleanup!"
-                echo "   💡 Manual cleanup required. Run on server:"
-                echo "      bash /opt/metaspn/scripts/fix-disk-space.sh"
-                echo "   Or manually: docker system prune -a -f --volumes"
-                exit 1
-              fi
+            if [ $AVAILABLE_SPACE_MB -lt 1000 ]; then
+              echo "❌ ERROR: Less than 1GB available after cleanup!"
+              echo "   💡 Manual cleanup required. Run on server:"
+              echo "      bash /opt/metaspn/scripts/fix-disk-space.sh"
+              echo "   Or manually: docker system prune -a -f --volumes"
+              exit 1
             fi
             
             # Determine which commit SHA to use (from CI workflow or current commit)
@@ -333,8 +316,22 @@ jobs:
               exit 1
             fi
 
+            # Pull Nginx image (built by CI workflow)
+            echo "📥 Pulling Nginx image..."
+            if ! pull_image_with_retry "ghcr.io/${{ github.repository }}/nginx:$COMMIT_SHA"; then
+              echo "⚠️  Failed to pull nginx:$COMMIT_SHA, trying latest..."
+              if ! pull_image_with_retry "ghcr.io/${{ github.repository }}/nginx:latest"; then
+                echo "❌ Failed to pull nginx image from registry"
+                echo "   💡 CI workflow must build and push nginx image"
+                exit 1
+              fi
+            fi
+
+            # Tag all images for docker-compose
             docker tag ghcr.io/${{ github.repository }}/backend:$COMMIT_SHA metaspn-backend:latest
             docker tag ghcr.io/${{ github.repository }}/frontend:$COMMIT_SHA metaspn-frontend:latest
+            docker tag ghcr.io/${{ github.repository }}/nginx:$COMMIT_SHA metaspn-nginx:latest 2>/dev/null || \
+            docker tag ghcr.io/${{ github.repository }}/nginx:latest metaspn-nginx:latest
             
             # SSL certs for Nginx must exist in /etc/nginx/ssl (readable by deploy user).
             # /etc/letsencrypt/ is root-only; deploy runs as PRODUCTION_USER (e.g. metaspn).
@@ -359,27 +356,6 @@ jobs:
               echo "   You may need to run migrations manually:"
               echo "   docker compose -f docker-compose.prod.yml run --rm backend pnpm run db:migrate"
             fi
-            
-            # Build Nginx image (not in registry; built on server from nginx/ in repo)
-            echo "🔨 Building Nginx image..."
-            # Fix Docker cache directory permission issues
-            # Ensure home directory exists
-            if [ ! -d "$HOME" ]; then
-              echo "⚠️  Home directory doesn't exist, creating it..."
-              mkdir -p "$HOME"
-              chmod 755 "$HOME" 2>/dev/null || true
-            fi
-            # Ensure .docker directory exists and is writable
-            mkdir -p "$HOME/.docker" 2>/dev/null || {
-              echo "⚠️  Cannot create $HOME/.docker, using alternative location..."
-              export DOCKER_CONFIG=/tmp/.docker-$(whoami)
-              mkdir -p "$DOCKER_CONFIG"
-            }
-            # Build Nginx image (disable BuildKit if it causes permission issues)
-            DOCKER_BUILDKIT=0 docker compose -f docker-compose.prod.yml build nginx || {
-              echo "⚠️  Build with BuildKit disabled failed, trying with cache disabled..."
-              DOCKER_BUILDKIT=0 docker compose -f docker-compose.prod.yml build --no-cache nginx
-            }
             
             # Recreate all containers with new images. Do NOT use 'down' – it would tear down
             # Nginx too; if Nginx then failed to start, the site would be broken.
@@ -436,9 +412,19 @@ jobs:
               exit 1
             fi
             
-            # Clean up old images (but NOT .env file or its backups)
-            echo "🧹 Cleaning up old images..."
-            docker image prune -f
+            # Clean up old images and Docker resources after deployment
+            echo "🧹 Running post-deployment cleanup..."
+            # Remove unused images (keep only what's needed)
+            docker image prune -a -f --filter "until=24h" || docker image prune -a -f
+            # Remove unused containers
+            docker container prune -f
+            # Remove build cache (safe - can be rebuilt)
+            docker builder prune -a -f --filter "until=12h" || docker builder prune -a -f
+            
+            # Show final disk space
+            AVAILABLE_SPACE=$(df / | tail -1 | awk '{print $4}')
+            AVAILABLE_SPACE_MB=$((AVAILABLE_SPACE / 1024))
+            echo "✅ Final available space: ${AVAILABLE_SPACE_MB}MB"
             
             # Verify .env file still exists after deployment
             if [ ! -f "$ENV_FILE" ]; then
