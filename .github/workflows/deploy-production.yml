@@ -219,28 +219,36 @@ jobs:
               chmod 600 "$ENV_FILE" || true
             fi
             
-            # Pull latest images
+            # Pull latest app images (backend, frontend)
             echo "📥 Pulling latest images..."
             docker pull ghcr.io/${{ github.repository }}/backend:${{ github.sha }}
             docker pull ghcr.io/${{ github.repository }}/frontend:${{ github.sha }}
             
-            # Tag images for docker compose
             docker tag ghcr.io/${{ github.repository }}/backend:${{ github.sha }} metaspn-backend:latest
             docker tag ghcr.io/${{ github.repository }}/frontend:${{ github.sha }} metaspn-frontend:latest
             
-            # Stop existing containers gracefully
-            echo "🛑 Stopping existing containers..."
-            docker compose -f docker-compose.prod.yml down --timeout 30 || true
-            
-            # Deploy new containers (use the ENV_FILE we found)
-            echo "🚀 Deploying new containers..."
-            if [ "$ENV_FILE" = "/etc/metaspn/.env.prod" ]; then
-              # Use the root-owned file directly
-              docker compose -f docker-compose.prod.yml --env-file "$ENV_FILE" up -d backend
+            # SSL certs for Nginx (must exist before we build/run nginx)
+            if [ -f /etc/letsencrypt/live/pro.metaspn.network/fullchain.pem ]; then
+              echo "📋 Preparing SSL certificates for Nginx..."
+              mkdir -p /etc/nginx/ssl
+              cp /etc/letsencrypt/live/pro.metaspn.network/fullchain.pem /etc/nginx/ssl/
+              cp /etc/letsencrypt/live/pro.metaspn.network/privkey.pem /etc/nginx/ssl/
+              chmod 600 /etc/nginx/ssl/*
+              echo "✅ SSL certificates ready"
             else
-              # Use the file in /opt/metaspn
-              docker compose -f docker-compose.prod.yml --env-file "$ENV_FILE" up -d backend
+              echo "❌ SSL certificates not found at /etc/letsencrypt/live/pro.metaspn.network/"
+              echo "   Run: sudo certbot certonly --standalone -d pro.metaspn.network"
+              exit 1
             fi
+            
+            # Build Nginx image (not in registry; built on server from nginx/ in repo)
+            echo "🔨 Building Nginx image..."
+            docker compose -f docker-compose.prod.yml build nginx
+            
+            # Recreate all containers with new images. Do NOT use 'down' – it would tear down
+            # Nginx too; if Nginx then failed to start, the site would be broken.
+            echo "🚀 Recreating containers (backend, worker, frontend, nginx)..."
+            docker compose -f docker-compose.prod.yml --env-file "$ENV_FILE" up -d --force-recreate backend worker frontend nginx
             
             # Wait for backend to be healthy
             echo "⏳ Waiting for backend to be healthy..."
@@ -251,14 +259,11 @@ jobs:
                 echo "✅ Backend is healthy!"
                 break
               fi
-              
-              # Check if container crashed
               if ! docker compose -f docker-compose.prod.yml ps backend | grep -q "Up"; then
-                echo "❌ Backend container is not running. Checking logs..."
+                echo "❌ Backend container is not running. Logs:"
                 docker compose -f docker-compose.prod.yml logs --tail=50 backend
                 exit 1
               fi
-              
               echo "  Waiting... ($ELAPSED/$MAX_WAIT seconds)"
               sleep 5
               ELAPSED=$((ELAPSED + 5))
@@ -266,78 +271,19 @@ jobs:
             
             if [ $ELAPSED -ge $MAX_WAIT ]; then
               echo "❌ Backend failed to become healthy within $MAX_WAIT seconds"
-              echo "📋 Backend logs:"
               docker compose -f docker-compose.prod.yml logs --tail=100 backend
-              echo "📋 Backend container status:"
-              docker compose -f docker-compose.prod.yml ps backend
               exit 1
             fi
             
-            # Verify backend is still healthy before starting dependent services
-            echo "🔍 Verifying backend is still healthy..."
-            sleep 3
-            BACKEND_HEALTHY=$(docker compose -f docker-compose.prod.yml ps backend | grep -q "healthy" && echo "yes" || echo "no")
-            if [ "$BACKEND_HEALTHY" != "yes" ]; then
-              echo "⚠️  Backend is not showing as healthy"
-              echo "📋 Backend container status:"
-              docker compose -f docker-compose.prod.yml ps backend
-              echo "📋 Backend logs (last 50 lines):"
-              docker compose -f docker-compose.prod.yml logs --tail=50 backend
+            # Verify Nginx is running (reverse proxy; without it the site is unreachable)
+            if ! docker compose -f docker-compose.prod.yml ps nginx | grep -q "Up"; then
+              echo "❌ Nginx is not running. Logs:"
+              docker compose -f docker-compose.prod.yml logs --tail=50 nginx
               exit 1
             fi
-            echo "✅ Backend confirmed healthy"
+            echo "✅ Nginx is running"
             
-            # Start worker first (no dependency on frontend)
-            echo "🚀 Starting worker..."
-            docker compose -f docker-compose.prod.yml --env-file "$ENV_FILE" up -d --no-deps worker || {
-              echo "❌ Failed to start worker"
-              docker compose -f docker-compose.prod.yml logs --tail=30 worker
-              exit 1
-            }
-            
-            # Wait a moment for worker to start
-            sleep 2
-            
-            # Start frontend (has depends_on: backend condition: service_healthy)
-            # Use --no-deps to bypass the dependency check since we've already verified backend is healthy
-            echo "🚀 Starting frontend..."
-            docker compose -f docker-compose.prod.yml --env-file "$ENV_FILE" up -d --no-deps frontend || {
-              echo "❌ Failed to start frontend"
-              docker compose -f docker-compose.prod.yml logs --tail=30 frontend
-              exit 1
-            }
-            
-            # Start Nginx (reverse proxy)
-            echo "🚀 Starting Nginx..."
-            
-            # Copy SSL certificates to Nginx location (if they exist)
-            if [ -f /etc/letsencrypt/live/pro.metaspn.network/fullchain.pem ]; then
-              echo "📋 Copying SSL certificates..."
-              mkdir -p /etc/nginx/ssl
-              cp /etc/letsencrypt/live/pro.metaspn.network/fullchain.pem /etc/nginx/ssl/ 2>/dev/null || true
-              cp /etc/letsencrypt/live/pro.metaspn.network/privkey.pem /etc/nginx/ssl/ 2>/dev/null || true
-              chmod 600 /etc/nginx/ssl/* 2>/dev/null || true
-              echo "✅ SSL certificates ready"
-            else
-              echo "⚠️  SSL certificates not found - Nginx may fail to start"
-            fi
-            
-            # Build Nginx image first (since it's not in registry)
-            docker compose -f docker-compose.prod.yml build nginx || {
-              echo "⚠️  Failed to build Nginx image"
-              echo "   💡 This may be due to missing nginx directory or Dockerfile"
-              echo "   💡 Run: bash /opt/metaspn/scripts/fix-nginx.sh to fix manually"
-            }
-            
-            # Start Nginx container
-            docker compose -f docker-compose.prod.yml --env-file "$ENV_FILE" up -d --no-deps nginx || {
-              echo "⚠️  Failed to start Nginx"
-              echo "   💡 Run: bash /opt/metaspn/scripts/fix-nginx.sh to diagnose and fix"
-              # Don't fail deployment if Nginx fails - services are still accessible on localhost
-            }
-            
-            # Wait a bit for frontend to start
-            sleep 10
+            sleep 5
             
             # Verify all services are running
             echo "🏥 Verifying all services..."

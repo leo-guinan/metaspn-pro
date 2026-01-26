@@ -196,29 +196,28 @@ sudo docker compose -f docker-compose.prod.yml logs -f
 sudo /opt/metaspn/scripts/health-check.sh
 ```
 
-### 4. Set Up Nginx
+### 4. Nginx (reverse proxy)
 
-Copy SSL certificates to Nginx directory:
+**Nginx runs as a Docker Compose service** in `docker-compose.prod.yml`, not on the host. The deploy workflow builds and starts it together with backend, frontend, and worker.
+
+Before the first deploy (or if Nginx fails to start), ensure SSL certificates exist and are copied for Nginx:
 
 ```bash
 sudo mkdir -p /etc/nginx/ssl
-sudo cp /etc/letsencrypt/live/your-domain.com/fullchain.pem /etc/nginx/ssl/
-sudo cp /etc/letsencrypt/live/your-domain.com/privkey.pem /etc/nginx/ssl/
+sudo cp /etc/letsencrypt/live/pro.metaspn.network/fullchain.pem /etc/nginx/ssl/
+sudo cp /etc/letsencrypt/live/pro.metaspn.network/privkey.pem /etc/nginx/ssl/
 sudo chmod 600 /etc/nginx/ssl/*
 ```
 
-Add Nginx to docker-compose.prod.yml or run separately:
+The deployment pipeline copies these automatically when present. If Nginx does not start after a deploy, run:
 
 ```bash
-cd /opt/metaspn
-sudo docker build -t metaspn-nginx -f nginx/Dockerfile .
-sudo docker run -d \
-  --name metaspn-nginx \
-  --network metaspn-network \
-  -p 80:80 -p 443:443 \
-  -v /etc/nginx/ssl:/etc/nginx/ssl:ro \
-  metaspn-nginx
+sudo bash /opt/metaspn/scripts/fix-nginx.sh
 ```
+
+**Host vs container:** Nginx runs **in Docker Compose**, not as a system service on the host. That keeps everything (app + reverse proxy) in one stack, same network, and managed by the same deploy process.
+
+**Deploy strategy:** We use `docker compose up -d --force-recreate` **without** `down`. That way we never tear down Nginx and leave the site unreachable; if Nginx fails to build or start, the deployment fails.
 
 ## Ongoing Deployments
 
