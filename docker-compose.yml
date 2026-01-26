@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     image: pgvector/pgvector:pg16
@@ -44,6 +42,7 @@ services:
       GITHUB_TOKEN_ENCRYPTION_KEY: ${GITHUB_TOKEN_ENCRYPTION_KEY:-}
       GITHUB_PUSH_CRON: ${GITHUB_PUSH_CRON:-}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      GAME_CLASSIFIER_URL: ${GAME_CLASSIFIER_URL:-http://game-classifier:5000}
     ports:
       - "3001:3001"
     volumes:
@@ -102,6 +101,7 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       NODE_ENV: development
       NODE_PATH: /app/node_modules:/app/backend/node_modules
+      GAME_CLASSIFIER_URL: ${GAME_CLASSIFIER_URL:-http://game-classifier:5000}
     ports:
       - "4111:4111"
     volumes:
@@ -119,6 +119,28 @@ services:
     command: pnpm run dev:mastra
     restart: unless-stopped
 
+  # Private image: run `docker login ghcr.io` first (see DOCKER.md).
+  game-classifier:
+    image: ghcr.io/metaspn/game-classifier:v1.0.5
+    container_name: metaspn-game-classifier
+    environment:
+      HOST: 0.0.0.0
+      PORT: "5000"
+      USE_SUB_MANIFOLDS: "false"
+      WORKERS: "1"
+      MAX_BATCH_SIZE: "100"
+    ports:
+      - "3002:5000"
+    networks:
+      - metaspn-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5000/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
   worker:
     build:
       context: .
@@ -131,6 +153,7 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       NODE_ENV: development
       GITHUB_PUSH_CRON: ${GITHUB_PUSH_CRON:-}
+      GAME_CLASSIFIER_URL: ${GAME_CLASSIFIER_URL:-http://game-classifier:5000}
     volumes:
       - ./backend:/app/backend
       - ./package.json:/app/package.json

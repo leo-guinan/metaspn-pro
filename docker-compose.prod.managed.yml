@@ -1,5 +1,3 @@
-version: '3.8'
-
 # Production Docker Compose for Managed Services Architecture
 # Uses Neon.tech (PostgreSQL) and Chroma Cloud (Vector DB) - no local database
 
@@ -33,6 +31,7 @@ services:
       GITHUB_TOKEN_ENCRYPTION_KEY: ${GITHUB_TOKEN_ENCRYPTION_KEY}
       GITHUB_PUSH_CRON: ${GITHUB_PUSH_CRON:-0 */6 * * *}
       FRONTEND_URL: ${FRONTEND_URL}
+      GAME_CLASSIFIER_URL: ${GAME_CLASSIFIER_URL:-http://game-classifier:5000}
     ports:
       - "127.0.0.1:3001:3001"  # Only bind to localhost (nginx will proxy)
     networks:
@@ -113,6 +112,7 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       NODE_ENV: production
       GITHUB_PUSH_CRON: ${GITHUB_PUSH_CRON:-0 */6 * * *}
+      GAME_CLASSIFIER_URL: ${GAME_CLASSIFIER_URL:-http://game-classifier:5000}
     command: ["sh", "-c", "cd /app/backend && pnpm add -D tsx && pnpm exec tsx src/worker.ts"]
     depends_on:
       - backend
@@ -127,6 +127,41 @@ services:
         reservations:
           cpus: '0.1'
           memory: 64M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Private image: run `docker login ghcr.io` first (see DOCKER.md).
+  game-classifier:
+    image: ghcr.io/metaspn/game-classifier:v1.0.5
+    container_name: metaspn-game-classifier-prod
+    environment:
+      HOST: 0.0.0.0
+      PORT: "5000"
+      USE_SUB_MANIFOLDS: "false"
+      WORKERS: "1"
+      MAX_BATCH_SIZE: "100"
+    ports:
+      - "127.0.0.1:3002:5000"
+    networks:
+      - metaspn-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     logging:
       driver: "json-file"
       options:

@@ -60,6 +60,22 @@ This project uses Docker Compose to run the full development stack locally.
 - **Command**: `mastra dev`
 - **Hot Reload**: Enabled (code changes trigger restart)
 
+### Game classifier
+- **Image**: `ghcr.io/metaspn/game-classifier:v1.0.1` (GHCR)
+- **Port**: 3002 (host) → 5000 (container)
+- **Purpose**: Founder game classification API (G1–G6) for Mastra tools.
+
+If you see **`unauthorized`** when pulling:
+
+1. **Log in to GitHub Container Registry** (image is private):
+   ```bash
+   echo YOUR_GITHUB_PAT | docker login ghcr.io -u YOUR_GITHUB_USERNAME --password-stdin
+   ```
+   Use a [GitHub Personal Access Token](https://github.com/settings/tokens) with `read:packages` scope.
+
+2. **Or** make the `metaspn/game-classifier` package **public** in GitHub:  
+   Package page → Package settings → Change visibility.
+
 ### Worker
 - **Port**: None (internal only)
 - **Purpose**: Background processes for scheduled workflows and data enhancement

@@ -24,20 +24,31 @@ JWT_SECRET=<64-char-random-string>
 NEXTAUTH_SECRET=<64-char-random-string>
 NEXTAUTH_URL=https://your-domain.com
 
-# OAuth (Production URLs)
+# OAuth & Redirects (use your production origin, e.g. https://pro.metaspn.network)
+FRONTEND_URL=https://your-domain.com
+NEXTAUTH_URL=https://your-domain.com
+NEXT_PUBLIC_API_URL=https://your-domain.com   # base URL only; frontend uses /api/... for API
+
 TWITTER_CLIENT_ID=<your-id>
 TWITTER_CLIENT_SECRET=<your-secret>
-TWITTER_CALLBACK_URL=https://your-domain.com/api/auth/twitter/callback
+# TWITTER_CALLBACK_URL defaults to ${FRONTEND_URL}/api/auth/twitter/callback
 
 GITHUB_CLIENT_ID=<your-id>
 GITHUB_CLIENT_SECRET=<your-secret>
-GITHUB_CALLBACK_URL=https://your-domain.com/api/auth/github/callback
+# GITHUB_CALLBACK_URL defaults to ${FRONTEND_URL}/api/auth/github/callback
 GITHUB_TOKEN_ENCRYPTION_KEY=<32-char-random-string>
-
-# Frontend
-FRONTEND_URL=https://your-domain.com
-NEXT_PUBLIC_API_URL=https://your-domain.com/api
 ```
+
+### OAuth redirect checklist
+
+If login redirects to **localhost** or GitHub/Twitter report "callback URL doesn't belong to the application":
+
+1. **Set `FRONTEND_URL`** to your production origin (e.g. `https://pro.metaspn.network`). Never use localhost in production.
+2. **Callbacks**: If you use the same host for frontend and API (nginx proxying `/api`), leave `GITHUB_CALLBACK_URL` and `TWITTER_CALLBACK_URL` unset; they default to `{FRONTEND_URL}/api/auth/.../callback`.
+3. **Register callbacks in provider apps**:
+   - **GitHub**: [Developer Settings → OAuth Apps](https://github.com/settings/developers) → your app → **Authorization callback URL** = `https://your-domain.com/api/auth/github/callback`
+   - **Twitter**: [Developer Portal](https://developer.twitter.com/) → your app → **Callback URI / Redirect URL** = `https://your-domain.com/api/auth/twitter/callback`
+4. **`NEXT_PUBLIC_API_URL`** must be the **base** URL (e.g. `https://your-domain.com`), not `.../api`. The frontend appends `/api/...` itself.
 
 ### Generating Secure Secrets
 

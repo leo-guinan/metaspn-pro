@@ -1,5 +1,6 @@
 import { createHash, randomBytes, createCipheriv, createDecipheriv } from 'crypto'
 import { Octokit } from 'octokit'
+import { getGitHubCallbackUrl } from '../config/oauth-urls.js'
 
 const ALG = 'aes-256-gcm'
 const IV_LEN = 16
@@ -34,7 +35,7 @@ export function decryptToken(encrypted: string): string {
 
 export function getOAuthAuthUrl(state: string, callbackUrl?: string): string {
   const clientId = process.env.GITHUB_CLIENT_ID
-  const callback = callbackUrl || process.env.GITHUB_CALLBACK_URL || 'http://localhost:3001/api/auth/github/callback'
+  const callback = callbackUrl ?? getGitHubCallbackUrl()
   if (!clientId) throw new Error('GITHUB_CLIENT_ID is not set')
   // Request 'repo' scope for full repository access (create, read, write)
   // 'read:user' for basic user info
@@ -45,7 +46,7 @@ export function getOAuthAuthUrl(state: string, callbackUrl?: string): string {
 export async function exchangeCodeForToken(code: string): Promise<{ access_token: string; login: string }> {
   const clientId = process.env.GITHUB_CLIENT_ID
   const clientSecret = process.env.GITHUB_CLIENT_SECRET
-  const callback = process.env.GITHUB_CALLBACK_URL || 'http://localhost:3001/api/integrations/github/callback'
+  const callback = getGitHubCallbackUrl()
   if (!clientId || !clientSecret) throw new Error('GITHUB_CLIENT_ID or GITHUB_CLIENT_SECRET is not set')
 
   const res = await fetch('https://github.com/login/oauth/access_token', {

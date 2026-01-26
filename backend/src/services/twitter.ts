@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from 'crypto'
+import { getTwitterCallbackUrl } from '../config/oauth-urls.js'
 
 const TWITTER_API_BASE = 'https://api.twitter.com/2'
 
@@ -12,7 +13,7 @@ export function generatePKCE(): { codeVerifier: string; codeChallenge: string } 
 // Generate Twitter OAuth 2.0 authorization URL with PKCE
 export function getOAuthAuthUrl(state: string, codeChallenge: string): string {
   const clientId = process.env.TWITTER_CLIENT_ID
-  const callback = process.env.TWITTER_CALLBACK_URL || 'http://localhost:3001/api/auth/twitter/callback'
+  const callback = getTwitterCallbackUrl()
   if (!clientId) throw new Error('TWITTER_CLIENT_ID is not set')
 
   const scopes = ['tweet.read', 'users.read', 'offline.access'].join(' ')
@@ -36,7 +37,7 @@ export async function exchangeCodeForToken(
 ): Promise<{ access_token: string; refresh_token?: string; expires_in?: number }> {
   const clientId = process.env.TWITTER_CLIENT_ID
   const clientSecret = process.env.TWITTER_CLIENT_SECRET
-  const callback = process.env.TWITTER_CALLBACK_URL || 'http://localhost:3001/api/auth/twitter/callback'
+  const callback = getTwitterCallbackUrl()
 
   if (!clientId || !clientSecret) {
     throw new Error('TWITTER_CLIENT_ID or TWITTER_CLIENT_SECRET is not set')

@@ -51,7 +51,13 @@ import {
   updateEpisodeGuest,
 } from './mastra/tools/guest-management-tools.js'
 
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000'
+import {
+  FRONTEND_URL,
+  getGitHubCallbackUrl,
+  getTwitterCallbackUrl,
+  getCorsOrigins,
+} from './config/oauth-urls.js'
+
 // OAuth store: state -> { user_id?, codeVerifier? (for Twitter), isLinking?: boolean, token?: string }
 const oauthStore = new Map<string, { user_id?: string; codeVerifier?: string; isLinking?: boolean; token?: string }>()
 const OAUTH_TTL_MS = 10 * 60 * 1000
@@ -66,11 +72,10 @@ function pruneOAuthStore() {
 
 const app = new Hono<{ Bindings: HonoBindings; Variables: HonoVariables }>()
 
-// Enable CORS
 app.use(
   '*',
   cors({
-    origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
+    origin: getCorsOrigins(),
     allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
@@ -114,7 +119,7 @@ app.get('/api/auth/:provider/login', (c) => {
       // GitHub OAuth
       oauthStore.set(state, { isLinking: false })
       pruneOAuthStore()
-      const callbackUrl = process.env.GITHUB_CALLBACK_URL || 'http://localhost:3001/api/auth/github/callback'
+      const callbackUrl = getGitHubCallbackUrl()
       const url = getOAuthAuthUrl(state, callbackUrl)
       return c.redirect(url, 302)
     }
@@ -309,7 +314,7 @@ app.get('/api/auth/:provider/link', async (c) => {
       return c.redirect(url, 302)
     } else {
       // For account linking, use the auth callback URL
-      const callbackUrl = process.env.GITHUB_CALLBACK_URL || 'http://localhost:3001/api/auth/github/callback'
+      const callbackUrl = getGitHubCallbackUrl()
       const url = getOAuthAuthUrl(state, callbackUrl)
       return c.redirect(url, 302)
     }
@@ -354,7 +359,7 @@ app.get('/api/integrations/github/auth', (c) => {
     oauthStore.set(state, { user_id: uid })
     pruneOAuthStore()
     // For GitHub integrations, use the same auth callback (it will route based on state)
-    const callbackUrl = process.env.GITHUB_CALLBACK_URL || 'http://localhost:3001/api/auth/github/callback'
+    const callbackUrl = getGitHubCallbackUrl()
     const url = getOAuthAuthUrl(state, callbackUrl)
     return c.redirect(url, 302)
   } catch (e: unknown) {
