@@ -62,7 +62,7 @@ export function createFeedItem(
           text: artifact.text,
           url: artifact.url,
           excerpt: artifact.text.substring(0, 300),
-          game_signature: changes.game_signature,
+          game_signature: changes.game_signature ? { ...changes.game_signature } as Record<string, number> : undefined,
           themes: changes.themes,
           complexity_score: changes.analysis?.complexity_score,
         },
@@ -90,7 +90,7 @@ export function createFeedItem(
           type: source.type,
           text: source.text,
           excerpt: source.text.substring(0, 300),
-          game_signature: changes.game_signature,
+          game_signature: changes.game_signature ? { ...changes.game_signature } as Record<string, number> : undefined,
           themes: changes.themes,
         },
         metadata: {
@@ -113,7 +113,7 @@ export function createFeedItem(
       content: {
         type: 'trajectory_shift',
         text: changes.trajectory_shift.description || 'Significant trajectory shift detected',
-        game_signature: changes.game_signature,
+        game_signature: changes.game_signature ? { ...changes.game_signature } as Record<string, number> : undefined,
         themes: changes.themes,
       },
       metadata: {

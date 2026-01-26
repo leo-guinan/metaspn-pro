@@ -96,3 +96,14 @@ export const mastra = new Mastra({
 export * from './tools'
 export * from './agents'
 export * from './workflows'
+
+// CRITICAL: Import the main server file to ensure it's included in the Mastra build
+// This file contains all custom routes (OAuth, etc.) that aren't part of Mastra's auto-generated routes
+// Without this import, Mastra's build won't include src/index.ts and custom routes won't work
+// #region agent log
+fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'mastra/index.ts:99',message:'About to import main index.ts',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+// #endregion
+import '../index.js'
+// #region agent log
+fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'mastra/index.ts:102',message:'Main index.ts imported successfully',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+// #endregion

@@ -77,13 +77,11 @@ import {
 } from './services/network-watch.js'
 import { createHubRepo, syncHubRepo, getHubStatus } from './services/hub-manager.js'
 import { markFeedItemProcessed, saveFeedItem } from './services/feed-generator.js'
-import { seedFeedRepo, setupWebhook } from './services/github.js'
 import {
   findSimilarUsers,
   getWatchSuggestions,
   getEmergingTopics,
 } from './services/network-discovery.js'
-import { pool } from './db/index.js'
 
 // OAuth store: state -> { user_id?, codeVerifier? (for Twitter), isLinking?: boolean, token?: string }
 const oauthStore = new Map<string, { user_id?: string; codeVerifier?: string; isLinking?: boolean; token?: string }>()

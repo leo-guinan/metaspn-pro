@@ -286,12 +286,12 @@ export async function pushToGitHubForUser(userId: string): Promise<PushResult> {
       )
 
       const now = new Date().toISOString()
-      const metaPath = 'meta.json'
-      const metaExisting = await getFileContent(octokit, repo_owner, repo_name, metaPath, branch)
+      const metaPath2 = 'meta.json'
+      const metaExisting2 = await getFileContent(octokit, repo_owner, repo_name, metaPath2, branch)
       let metaContent: string
-      if (metaExisting) {
+      if (metaExisting2) {
         try {
-          const meta = JSON.parse(metaExisting.content) as Record<string, unknown>
+          const meta = JSON.parse(metaExisting2.content) as Record<string, unknown>
           meta.last_sync_utc = now
           // Ensure schema_version is set to 2.0.0 for new structure
           if (!meta.schema_version || (typeof meta.schema_version === 'number' && meta.schema_version < 2) || (typeof meta.schema_version === 'string' && meta.schema_version < '2.0.0')) {
@@ -308,11 +308,11 @@ export async function pushToGitHubForUser(userId: string): Promise<PushResult> {
         octokit,
         repo_owner,
         repo_name,
-        metaPath,
+        metaPath2,
         metaContent,
         'chore: update meta.json',
         branch,
-        metaExisting?.sha ?? null
+        metaExisting2?.sha ?? null
       )
 
       lastPushAt = now

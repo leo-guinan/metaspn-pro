@@ -639,8 +639,9 @@ export async function syncTwitterArchiveToGitHub(userId: string): Promise<SyncRe
           }
           meta.last_twitter_sync_utc = now.toISOString()
           // Ensure schema_version is set to 2.0.0 for new structure
-          if (!meta.schema_version || (typeof meta.schema_version === 'number' && meta.schema_version < 2) || (typeof meta.schema_version === 'string' && meta.schema_version < '2.0.0')) {
-            meta.schema_version = '2.0.0'
+          const schemaVersion = meta.schema_version as string | number | undefined
+          if (!schemaVersion || (typeof schemaVersion === 'number' && schemaVersion < 2) || (typeof schemaVersion === 'string' && String(schemaVersion) < '2.0.0')) {
+            ;(meta as any).schema_version = '2.0.0'
           }
           metaContent = JSON.stringify(meta, null, 2)
         } catch {

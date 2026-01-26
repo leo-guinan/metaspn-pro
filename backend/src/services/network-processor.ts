@@ -246,10 +246,10 @@ export async function analyzePushEvent(
       event.commits[0]?.id || null,
       JSON.stringify(changes),
       JSON.stringify({
-        game_signature,
+        game_signature: gameSignature,
         themes,
         trajectory_shift: trajectoryShift,
-        content_analyses,
+        content_analyses: contentAnalyses,
       }),
     ]
   )
@@ -260,10 +260,10 @@ export async function analyzePushEvent(
     repo_name: repoName,
     changes,
     analysis_results: {
-      game_signature,
+      game_signature: gameSignature,
       themes,
       trajectory_shift: trajectoryShift,
-      content_analyses,
+      content_analyses: contentAnalyses,
     },
   }
 }

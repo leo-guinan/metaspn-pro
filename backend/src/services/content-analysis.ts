@@ -19,6 +19,12 @@ export interface ContentAnalysis {
   complexity_score: number
   themes: string[]
   quality_score: number
+  metadata?: {
+    relevance_score?: number
+    trust_score?: number
+    is_verified?: boolean
+    [key: string]: unknown
+  }
 }
 
 export interface TrajectoryShift {
@@ -38,11 +44,9 @@ export async function extractGameSignature(
   
   // Use batch classification if multiple texts
   if (texts.length > 1) {
-    const result = await classifyGamesBatchTool.execute({
-      context: { texts },
-    })
+    const result = await (classifyGamesBatchTool as any).execute({ texts })
     
-    if (!result.success || !result.predictions) {
+    if ('error' in result || !('success' in result) || !result.success || !result.predictions) {
       // Fallback to uniform distribution
       return { G1: 0, G2: 0, G3: 0, G4: 0, G5: 0, G6: 0 }
     }
@@ -70,11 +74,9 @@ export async function extractGameSignature(
     return signature
   } else {
     // Single text classification
-    const result = await classifyGameTool.execute({
-      context: { text: texts[0] },
-    })
+    const result = await (classifyGameTool as any).execute({ text: texts[0] })
     
-    if (!result.success || !result.primary_game) {
+    if ('error' in result || !('success' in result) || !result.success || !result.primary_game) {
       return { G1: 0, G2: 0, G3: 0, G4: 0, G5: 0, G6: 0 }
     }
     
@@ -100,21 +102,19 @@ export async function calculateCreatorScore(
   }
 ): Promise<number> {
   // Base score from game classification quality
-  const gameResult = await classifyGameTool.execute({
-    context: { text: content.text },
-  })
+  const gameResult = await (classifyGameTool as any).execute({ text: content.text })
   
   let score = 0
   
   // Quality score from game classifier (0-1)
-  if (gameResult.success && gameResult.quality_score) {
+  if (!('error' in gameResult) && 'success' in gameResult && gameResult.success && gameResult.quality_score) {
     score += gameResult.quality_score * 0.4
   }
   
   // Confidence tier bonus
-  if (gameResult.confidence_tier === 'high') {
+  if (!('error' in gameResult) && 'success' in gameResult && gameResult.confidence_tier === 'high') {
     score += 0.2
-  } else if (gameResult.confidence_tier === 'medium') {
+  } else if (!('error' in gameResult) && 'success' in gameResult && gameResult.confidence_tier === 'medium') {
     score += 0.1
   }
   
