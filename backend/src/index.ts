@@ -144,7 +144,6 @@ app.use(
 let server: any = null
 if (MastraServer && mastra) {
   try {
-    // @ts-expect-error - MastraServer types may be incorrect, but constructor accepts { app, mastra }
     server = new MastraServer({ app, mastra })
     console.log('✅ MastraServer initialized')
   } catch (error) {
@@ -1122,7 +1121,7 @@ app.post('/api/podcasts/discover', requireAuth, async (c) => {
     if (!rss_feed_url && podcastDiscoveryWorkflow) {
       podcastDiscoveryWorkflow
         .createRun()
-        .then((run) =>
+        .then((run: any) =>
           run.start({
             inputData: {
               podcast_name,
@@ -1132,7 +1131,7 @@ app.post('/api/podcasts/discover', requireAuth, async (c) => {
             },
           })
         )
-        .catch((error) => {
+        .catch((error: unknown) => {
           console.error('Background podcast discovery failed:', error)
           // Log error but don't fail the request - preference is already saved
         })
