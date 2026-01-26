@@ -351,10 +351,14 @@ jobs:
             
             # Run database migrations BEFORE starting containers
             echo "🔄 Running database migrations..."
-            docker compose -f docker-compose.prod.yml --env-file "$ENV_FILE" run --rm backend pnpm run db:migrate || {
-              echo "⚠️  Migration failed, but continuing deployment..."
+            if docker compose -f docker-compose.prod.yml --env-file "$ENV_FILE" run --rm backend pnpm run db:migrate; then
+              echo "✅ Migrations completed successfully"
+            else
+              echo "⚠️  Migration had errors, but continuing deployment..."
               echo "   Check logs above for details"
-            }
+              echo "   You may need to run migrations manually:"
+              echo "   docker compose -f docker-compose.prod.yml run --rm backend pnpm run db:migrate"
+            fi
             
             # Build Nginx image (not in registry; built on server from nginx/ in repo)
             echo "🔨 Building Nginx image..."

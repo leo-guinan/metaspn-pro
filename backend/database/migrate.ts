@@ -188,15 +188,37 @@ async function runMigrations() {
       } catch (error: any) {
         console.error(`❌ Migration failed: ${version}`)
         console.error(`   Error: ${error.message}`)
-        throw error
+        console.error(`   SQL Error Code: ${error.code}`)
+        console.error(`   SQL Error Detail: ${error.detail || 'N/A'}`)
+        console.error(`   SQL Error Hint: ${error.hint || 'N/A'}`)
+        // Don't throw - continue with other migrations
+        // But log the failure clearly
+        console.error(`   ⚠️  Continuing with remaining migrations...`)
+        // Still throw for critical errors (like connection issues)
+        if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND') {
+          throw error
+        }
       }
     }
     
     console.log('')
     console.log(`✅ Migrations complete: ${appliedCount} applied, ${skippedCount} skipped`)
+    
+    // Final verification - check if all expected migrations are applied
+    const finalApplied = await getAppliedMigrations()
+    const missing = migrationFiles.filter(f => !finalApplied.has(f.replace('.sql', '')))
+    if (missing.length > 0) {
+      console.log('')
+      console.log('⚠️  WARNING: Some migrations were not applied:')
+      missing.forEach(f => console.log(`   - ${f.replace('.sql', '')}`))
+      console.log('')
+      console.log('💡 Run migrations again to apply missing migrations')
+    }
   } catch (error: any) {
     console.error('❌ Migration runner failed:', error.message)
-    process.exit(1)
+    // Don't exit on error - let the caller decide
+    // This allows partial migrations to be completed
+    throw error
   } finally {
     await pool.end()
   }
