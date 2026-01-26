@@ -20,7 +20,13 @@ let saveUserPodcastPreferences: any
 let safeExecuteTool: any
 let getDashboardData: any
 
-if (USE_MASTRA) {
+// Load Mastra modules asynchronously (if enabled)
+async function loadMastraModules() {
+  if (!USE_MASTRA) {
+    console.log('ℹ️  Mastra disabled (USE_MASTRA=false) - running in simple mode')
+    return
+  }
+
   try {
     const mastraModule = await import('@mastra/hono')
     MastraServer = mastraModule.MastraServer
@@ -43,8 +49,6 @@ if (USE_MASTRA) {
     console.warn('⚠️  Mastra modules failed to load - running in simple mode (OAuth routes will work, Mastra features disabled)')
     console.warn('   Error:', (error as Error).message)
   }
-} else {
-  console.log('ℹ️  Mastra disabled (USE_MASTRA=false) - running in simple mode')
 }
 import { pool } from './db/index.js'
 import {
@@ -140,18 +144,8 @@ app.use(
   })
 )
 
-// Initialize MastraServer if available (optional)
+// Initialize MastraServer if available (optional) - will be set in startServer()
 let server: any = null
-if (MastraServer && mastra) {
-  try {
-    server = new MastraServer({ app, mastra })
-    console.log('✅ MastraServer initialized')
-  } catch (error) {
-    console.warn('⚠️  MastraServer initialization failed:', (error as Error).message)
-  }
-} else {
-  console.log('ℹ️  MastraServer skipped (Mastra not available)')
-}
 
 // Health check endpoint (before init)
 app.get('/health', (c) => {
@@ -1805,34 +1799,56 @@ app.get('/api/episodes/:episode_id/analytics', requireAuth, async (c) => {
   }
 })
 
-// Initialize server
-await (server as any).init()
+// Initialize and start server
+async function startServer() {
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'index.ts:1807',message:'Starting server initialization',data:{nodeEnv:process.env.NODE_ENV||'not set',frontendUrlEnv:process.env.FRONTEND_URL||'NOT SET'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+  // #endregion
+  
+  // Load Mastra modules first (if enabled)
+  await loadMastraModules()
 
-// Log environment configuration at startup (critical for debugging OAuth)
-// #region agent log
-fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'index.ts:1372',message:'Server initialized, logging config',data:{nodeEnv:process.env.NODE_ENV||'not set',frontendUrlEnv:process.env.FRONTEND_URL||'NOT SET',frontendUrlConfig:FRONTEND_URL},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-// #endregion
-console.log('='.repeat(60))
-console.log('[STARTUP] Environment Configuration:')
-console.log(`  NODE_ENV: ${process.env.NODE_ENV || 'not set'}`)
-console.log(`  FRONTEND_URL (env): ${process.env.FRONTEND_URL || 'NOT SET'}`)
-console.log(`  FRONTEND_URL (config): ${FRONTEND_URL}`)
-console.log(`  GITHUB_CALLBACK_URL: ${process.env.GITHUB_CALLBACK_URL || 'using default'}`)
-console.log(`  TWITTER_CALLBACK_URL: ${process.env.TWITTER_CALLBACK_URL || 'using default'}`)
-console.log('='.repeat(60))
-
-// Start server
-const port = 3001
-const host = '0.0.0.0'
-
-serve(
-  {
-    fetch: app.fetch,
-    port,
-    hostname: host,
-  },
-  (info) => {
-    console.log(`🚀 Mastra server starting on http://${info.address}:${info.port}`)
-    console.log(`📚 API endpoints available at http://${info.address}:${info.port}/api`)
+  // Initialize MastraServer if available (optional)
+  if (MastraServer && mastra) {
+    try {
+      server = new MastraServer({ app, mastra })
+      console.log('✅ MastraServer initialized')
+    } catch (error) {
+      console.warn('⚠️  MastraServer initialization failed:', (error as Error).message)
+    }
+  } else {
+    console.log('ℹ️  MastraServer skipped (Mastra not available)')
   }
-)
+
+  // Log startup configuration
+  console.log('='.repeat(60))
+  console.log('🚀 Starting Server')
+  console.log(`  NODE_ENV: ${process.env.NODE_ENV || 'not set'}`)
+  console.log(`  FRONTEND_URL (env): ${process.env.FRONTEND_URL || 'NOT SET'}`)
+  console.log(`  FRONTEND_URL (config): ${FRONTEND_URL}`)
+  console.log(`  GITHUB_CALLBACK_URL: ${process.env.GITHUB_CALLBACK_URL || 'using default'}`)
+  console.log(`  TWITTER_CALLBACK_URL: ${process.env.TWITTER_CALLBACK_URL || 'using default'}`)
+  console.log('='.repeat(60))
+
+  // Start server
+  const port = 3001
+  const host = '0.0.0.0'
+
+  serve(
+    {
+      fetch: app.fetch,
+      port,
+      hostname: host,
+    },
+    (info) => {
+      console.log(`🚀 Server started on http://${info.address}:${info.port}`)
+      console.log(`📚 API endpoints available at http://${info.address}:${info.port}/api`)
+    }
+  )
+}
+
+// Start the server
+startServer().catch((error) => {
+  console.error('❌ Failed to start server:', error)
+  process.exit(1)
+})
