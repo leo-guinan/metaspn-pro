@@ -19,6 +19,10 @@ RUN pnpm install --frozen-lockfile --prod=false
 # Build stage
 FROM base AS builder
 
+# Accept build argument for API URL (required at build time for Next.js)
+ARG NEXT_PUBLIC_API_URL=https://pro.metaspn.network
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+
 # Copy frontend source code
 COPY frontend/ ./frontend/
 

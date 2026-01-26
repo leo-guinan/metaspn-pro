@@ -119,6 +119,8 @@ jobs:
           context: .
           file: ./frontend/Dockerfile.prod
           push: ${{ github.event_name != 'pull_request' }}
+          build-args: |
+            NEXT_PUBLIC_API_URL=https://pro.metaspn.network
           tags: |
             ghcr.io/${{ github.repository }}/frontend:latest
             ghcr.io/${{ github.repository }}/frontend:${{ github.sha }}
