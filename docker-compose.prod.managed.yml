@@ -113,7 +113,7 @@ services:
       NODE_ENV: production
       GITHUB_PUSH_CRON: ${GITHUB_PUSH_CRON:-0 */6 * * *}
       GAME_CLASSIFIER_URL: ${GAME_CLASSIFIER_URL:-http://game-classifier:5000}
-    command: ["sh", "-c", "cd /app/backend && pnpm add -D tsx && pnpm exec tsx src/worker.ts"]
+    command: ["sh", "-c", "cd /app/backend && pnpm exec tsx src/worker.ts"]
     depends_on:
       - backend
     networks:
