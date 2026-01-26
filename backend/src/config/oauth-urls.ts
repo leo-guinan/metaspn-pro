@@ -19,13 +19,24 @@ export function ensureNoLocalhostInProduction(
   }
 }
 
+// Log environment variable immediately (before any processing)
+console.log('='.repeat(60))
+console.log('[OAuth Config] Module Loading...')
+console.log(`  process.env.FRONTEND_URL (raw): ${process.env.FRONTEND_URL || 'NOT SET'}`)
+console.log(`  process.env.NODE_ENV: ${process.env.NODE_ENV || 'NOT SET'}`)
+
 const base = (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/$/, '')
-ensureNoLocalhostInProduction('FRONTEND_URL', process.env.FRONTEND_URL, 'startup')
+
+// Only check in production (don't fail in dev)
+if (process.env.NODE_ENV === 'production') {
+  ensureNoLocalhostInProduction('FRONTEND_URL', process.env.FRONTEND_URL, 'startup')
+}
 
 // Log the actual FRONTEND_URL being used (helpful for debugging)
-console.log(`[OAuth Config] FRONTEND_URL: ${base}`)
+console.log(`[OAuth Config] FRONTEND_URL (final): ${base}`)
 console.log(`[OAuth Config] GitHub Callback: ${process.env.GITHUB_CALLBACK_URL || `${base}/api/auth/github/callback`}`)
 console.log(`[OAuth Config] Twitter Callback: ${process.env.TWITTER_CALLBACK_URL || `${base}/api/auth/twitter/callback`}`)
+console.log('='.repeat(60))
 
 export const FRONTEND_URL = base
 

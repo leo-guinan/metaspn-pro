@@ -1371,6 +1371,16 @@ app.get('/api/episodes/:episode_id/analytics', requireAuth, async (c) => {
 // Initialize server
 await (server as any).init()
 
+// Log environment configuration at startup (critical for debugging OAuth)
+console.log('='.repeat(60))
+console.log('[STARTUP] Environment Configuration:')
+console.log(`  NODE_ENV: ${process.env.NODE_ENV || 'not set'}`)
+console.log(`  FRONTEND_URL (env): ${process.env.FRONTEND_URL || 'NOT SET'}`)
+console.log(`  FRONTEND_URL (config): ${FRONTEND_URL}`)
+console.log(`  GITHUB_CALLBACK_URL: ${process.env.GITHUB_CALLBACK_URL || 'using default'}`)
+console.log(`  TWITTER_CALLBACK_URL: ${process.env.TWITTER_CALLBACK_URL || 'using default'}`)
+console.log('='.repeat(60))
+
 // Start server
 const port = 3001
 const host = '0.0.0.0'
