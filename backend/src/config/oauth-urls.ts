@@ -11,15 +11,21 @@ export function ensureNoLocalhostInProduction(
 ): void {
   if (process.env.NODE_ENV !== 'production') return
   if (!value || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(value)) {
-    console.error(
-      `[OAuth] ${ctx}: ${name} must be set to your production origin (e.g. https://pro.metaspn.network) in production. ` +
-        `Currently: ${value || '(missing)'}. OAuth redirects will fail or send users to localhost.`
-    )
+    const errorMsg = `[OAuth] ${ctx}: ${name} must be set to your production origin (e.g. https://pro.metaspn.network) in production. ` +
+      `Currently: ${value || '(missing)'}. OAuth redirects will fail or send users to localhost.`
+    console.error(errorMsg)
+    // Fail fast in production - this is a critical configuration error
+    throw new Error(errorMsg)
   }
 }
 
 const base = (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/$/, '')
 ensureNoLocalhostInProduction('FRONTEND_URL', process.env.FRONTEND_URL, 'startup')
+
+// Log the actual FRONTEND_URL being used (helpful for debugging)
+console.log(`[OAuth Config] FRONTEND_URL: ${base}`)
+console.log(`[OAuth Config] GitHub Callback: ${process.env.GITHUB_CALLBACK_URL || `${base}/api/auth/github/callback`}`)
+console.log(`[OAuth Config] Twitter Callback: ${process.env.TWITTER_CALLBACK_URL || `${base}/api/auth/twitter/callback`}`)
 
 export const FRONTEND_URL = base
 

@@ -140,6 +140,7 @@ jobs:
               "scripts/fix-nginx.sh"
               "scripts/check-backend-health.sh"
               "scripts/check-backend-startup.sh"
+              "scripts/check-frontend-url.sh"
             )
             
             for script in "${SCRIPTS[@]}"; do
@@ -217,6 +218,28 @@ jobs:
             # Ensure .env file is protected (read-only for owner, no access for others)
             if [ "$ENV_FILE" = "/opt/metaspn/.env" ] && [ -f "$ENV_FILE" ]; then
               chmod 600 "$ENV_FILE" || true
+            fi
+            
+            # Verify FRONTEND_URL is set correctly (critical for OAuth redirects)
+            echo "🔍 Verifying FRONTEND_URL configuration..."
+            if grep -q "^FRONTEND_URL=" "$ENV_FILE"; then
+              FRONTEND_URL_VALUE=$(grep "^FRONTEND_URL=" "$ENV_FILE" | cut -d '=' -f2- | tr -d '"' | tr -d "'" | xargs)
+              if [ -z "$FRONTEND_URL_VALUE" ]; then
+                echo "❌ ERROR: FRONTEND_URL is empty in $ENV_FILE"
+                echo "   💡 Fix: Set FRONTEND_URL=https://pro.metaspn.network in $ENV_FILE"
+                exit 1
+              elif echo "$FRONTEND_URL_VALUE" | grep -qiE "^(https?://)?(localhost|127\.0\.0\.1)"; then
+                echo "❌ ERROR: FRONTEND_URL is set to localhost: $FRONTEND_URL_VALUE"
+                echo "   💡 Fix: Set FRONTEND_URL=https://pro.metaspn.network in $ENV_FILE"
+                echo "   This will cause OAuth redirects to fail in production!"
+                exit 1
+              else
+                echo "✅ FRONTEND_URL is set correctly: $FRONTEND_URL_VALUE"
+              fi
+            else
+              echo "❌ ERROR: FRONTEND_URL not found in $ENV_FILE"
+              echo "   💡 Fix: Add FRONTEND_URL=https://pro.metaspn.network to $ENV_FILE"
+              exit 1
             fi
             
             # Pull latest app images (backend, frontend)
