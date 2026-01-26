@@ -7,7 +7,9 @@
     "dev": "tsx --tsconfig tsconfig.json src/index.ts",
     "dev:mastra": "npx mastra dev",
     "build": "npx mastra build",
+    "build:simple": "tsc && cp -r src/config dist/config 2>/dev/null || true",
     "start": "node .mastra/index.mjs",
+    "start:simple": "tsx --tsconfig tsconfig.json src/index.ts",
     "worker": "tsx --tsconfig tsconfig.json src/worker.ts",
     "type-check": "tsc --noEmit",
     "db:migrate": "tsx database/migrate.ts"

@@ -105,7 +105,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./backend/Dockerfile.prod
+          file: ./backend/Dockerfile.prod.simple
           push: ${{ github.event_name != 'pull_request' }}
           tags: |
             ghcr.io/${{ github.repository }}/backend:latest

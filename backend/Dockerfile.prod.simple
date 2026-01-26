@@ -1,0 +1,48 @@
+# Simple production build for backend (bypasses Mastra build)
+FROM node:20-alpine AS base
+
+# Install pnpm
+RUN corepack enable && corepack prepare pnpm@8.15.9 --activate
+
+# Set working directory
+WORKDIR /app
+
+# Copy root package files (needed for pnpm workspace)
+COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml* ./
+
+# Copy backend package.json
+COPY backend/package.json ./backend/
+
+# Install dependencies (including tsx for runtime)
+RUN pnpm install --frozen-lockfile --prod=false
+
+# Production stage
+FROM base AS production
+
+# Copy backend source code (no build step needed - tsx runs TypeScript directly)
+COPY backend/ ./backend/
+
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001
+
+# Change ownership
+RUN chown -R nodejs:nodejs /app
+
+# Switch to non-root user
+USER nodejs
+
+# Set working directory to backend
+WORKDIR /app/backend
+
+# Expose port
+EXPOSE 3001
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:3001/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
+
+# Start production server using tsx (runs TypeScript directly)
+# Set USE_MASTRA=false to disable Mastra features
+ENV USE_MASTRA=false
+CMD ["pnpm", "run", "start:simple"]

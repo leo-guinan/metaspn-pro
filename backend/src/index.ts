@@ -1,18 +1,51 @@
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import {
-  type HonoBindings,
-  type HonoVariables,
-  MastraServer,
+import type {
+  HonoBindings,
+  HonoVariables,
 } from '@mastra/hono'
-import { mastra } from './mastra/index.js'
-import { podcastDiscoveryWorkflow } from './mastra/workflows/podcast-discovery-workflow.js'
-import { parseRSSFeed, createPodcast } from './mastra/tools/podcast-discovery-tools.js'
-import { getUserPodcastPreferences } from './mastra/tools/user-preference-tools.js'
-import { saveUserPodcastPreferences } from './mastra/tools/user-preference-tools.js'
-import { safeExecuteTool } from './mastra/utils/tool-helpers.js'
-import { getDashboardData } from './mastra/tools/dashboard-tools.js'
+
+// Mastra imports - made optional for simple build
+// Set USE_MASTRA=false to disable Mastra and run in simple mode
+const USE_MASTRA = process.env.USE_MASTRA !== 'false'
+
+let MastraServer: any
+let mastra: any
+let podcastDiscoveryWorkflow: any
+let parseRSSFeed: any
+let createPodcast: any
+let getUserPodcastPreferences: any
+let saveUserPodcastPreferences: any
+let safeExecuteTool: any
+let getDashboardData: any
+
+if (USE_MASTRA) {
+  try {
+    const mastraModule = await import('@mastra/hono')
+    MastraServer = mastraModule.MastraServer
+    const mastraIndex = await import('./mastra/index.js')
+    mastra = mastraIndex.mastra
+    const workflowModule = await import('./mastra/workflows/podcast-discovery-workflow.js')
+    podcastDiscoveryWorkflow = workflowModule.podcastDiscoveryWorkflow
+    const toolsModule = await import('./mastra/tools/podcast-discovery-tools.js')
+    parseRSSFeed = toolsModule.parseRSSFeed
+    createPodcast = toolsModule.createPodcast
+    const prefToolsModule = await import('./mastra/tools/user-preference-tools.js')
+    getUserPodcastPreferences = prefToolsModule.getUserPodcastPreferences
+    saveUserPodcastPreferences = prefToolsModule.saveUserPodcastPreferences
+    const toolHelpersModule = await import('./mastra/utils/tool-helpers.js')
+    safeExecuteTool = toolHelpersModule.safeExecuteTool
+    const dashboardToolsModule = await import('./mastra/tools/dashboard-tools.js')
+    getDashboardData = dashboardToolsModule.getDashboardData
+    console.log('✅ Mastra modules loaded successfully')
+  } catch (error) {
+    console.warn('⚠️  Mastra modules failed to load - running in simple mode (OAuth routes will work, Mastra features disabled)')
+    console.warn('   Error:', (error as Error).message)
+  }
+} else {
+  console.log('ℹ️  Mastra disabled (USE_MASTRA=false) - running in simple mode')
+}
 import { pool } from './db/index.js'
 import {
   getOAuthAuthUrl,
@@ -107,8 +140,19 @@ app.use(
   })
 )
 
-// @ts-expect-error - MastraServer types may be incorrect, but constructor accepts { app, mastra }
-const server = new MastraServer({ app, mastra })
+// Initialize MastraServer if available (optional)
+let server: any = null
+if (MastraServer && mastra) {
+  try {
+    // @ts-expect-error - MastraServer types may be incorrect, but constructor accepts { app, mastra }
+    server = new MastraServer({ app, mastra })
+    console.log('✅ MastraServer initialized')
+  } catch (error) {
+    console.warn('⚠️  MastraServer initialization failed:', (error as Error).message)
+  }
+} else {
+  console.log('ℹ️  MastraServer skipped (Mastra not available)')
+}
 
 // Health check endpoint (before init)
 app.get('/health', (c) => {
@@ -1075,7 +1119,7 @@ app.post('/api/podcasts/discover', requireAuth, async (c) => {
     // Step 3: Run discovery workflow asynchronously (don't wait for it)
     // This will populate episodes and update podcast metadata in the background
     // Only run if we don't have an RSS feed URL yet (to avoid duplicate work)
-    if (!rss_feed_url) {
+    if (!rss_feed_url && podcastDiscoveryWorkflow) {
       podcastDiscoveryWorkflow
         .createRun()
         .then((run) =>
@@ -1249,7 +1293,11 @@ app.get('/api/users/:user_id/dashboard', requireAuth, async (c) => {
         ? authenticated_user_id
         : authenticated_user_id // Default to authenticated user for security
 
-    // Execute the dashboard tool
+    // Execute the dashboard tool (if available)
+    if (!getDashboardData) {
+      return c.json({ error: 'Dashboard feature requires Mastra (currently running in simple mode)' }, 503)
+    }
+    
     const result = await (getDashboardData as any).execute({
       context: { user_id },
     })
