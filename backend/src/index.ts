@@ -113,14 +113,19 @@ app.get('/api/auth/:provider/login', (c) => {
       const { codeVerifier, codeChallenge } = generatePKCE()
       oauthStore.set(state, { codeVerifier, isLinking: false })
       pruneOAuthStore()
+      const callbackUrl = getTwitterCallbackUrl()
+      console.log(`[OAuth Login] Twitter - FRONTEND_URL: ${FRONTEND_URL}, Callback URL: ${callbackUrl}`)
       const url = getTwitterOAuthAuthUrl(state, codeChallenge)
+      console.log(`[OAuth Login] Twitter - Redirecting to OAuth provider: ${url}`)
       return c.redirect(url, 302)
     } else {
       // GitHub OAuth
       oauthStore.set(state, { isLinking: false })
       pruneOAuthStore()
       const callbackUrl = getGitHubCallbackUrl()
+      console.log(`[OAuth Login] GitHub - FRONTEND_URL: ${FRONTEND_URL}, Callback URL: ${callbackUrl}`)
       const url = getOAuthAuthUrl(state, callbackUrl)
+      console.log(`[OAuth Login] GitHub - Redirecting to OAuth provider: ${url}`)
       return c.redirect(url, 302)
     }
   } catch (e: unknown) {
@@ -137,17 +142,26 @@ app.get('/api/auth/:provider/callback', async (c) => {
     const state = c.req.query('state')
     const error = c.req.query('error')
 
+    // Log redirect URL for debugging
+    console.log(`[OAuth Callback] Provider: ${provider}, FRONTEND_URL: ${FRONTEND_URL}, env.FRONTEND_URL: ${process.env.FRONTEND_URL}`)
+
     if (error) {
-      return c.redirect(`${FRONTEND_URL}/auth/callback?error=${encodeURIComponent(error)}`, 302)
+      const redirectUrl = `${FRONTEND_URL}/auth/callback?error=${encodeURIComponent(error)}`
+      console.log(`[OAuth Callback] Redirecting to: ${redirectUrl}`)
+      return c.redirect(redirectUrl, 302)
     }
 
     if (!code || !state) {
-      return c.redirect(`${FRONTEND_URL}/auth/callback?error=missing_code_or_state`, 302)
+      const redirectUrl = `${FRONTEND_URL}/auth/callback?error=missing_code_or_state`
+      console.log(`[OAuth Callback] Redirecting to: ${redirectUrl}`)
+      return c.redirect(redirectUrl, 302)
     }
 
     const entry = oauthStore.get(state)
     if (!entry) {
-      return c.redirect(`${FRONTEND_URL}/auth/callback?error=invalid_state`, 302)
+      const redirectUrl = `${FRONTEND_URL}/auth/callback?error=invalid_state`
+      console.log(`[OAuth Callback] Redirecting to: ${redirectUrl}`)
+      return c.redirect(redirectUrl, 302)
     }
 
     let accountData: {
@@ -212,20 +226,23 @@ app.get('/api/auth/:provider/callback', async (c) => {
       // Linking account to existing user
       await linkOAuthAccount(entry.user_id, provider, accountData)
       const token = generateToken(entry.user_id, provider)
-      return c.redirect(`${FRONTEND_URL}/auth/callback?token=${encodeURIComponent(token)}&linked=true`, 302)
+      const redirectUrl = `${FRONTEND_URL}/auth/callback?token=${encodeURIComponent(token)}&linked=true`
+      console.log(`[OAuth Callback] Linking account - Redirecting to: ${redirectUrl}`)
+      return c.redirect(redirectUrl, 302)
     } else {
       // New login - find or create user
       const { user_id, is_new } = await findOrCreateUserFromOAuth(provider, accountData)
       const token = generateToken(user_id, provider)
-      return c.redirect(
-        `${FRONTEND_URL}/auth/callback?token=${encodeURIComponent(token)}&is_new=${is_new}`,
-        302
-      )
+      const redirectUrl = `${FRONTEND_URL}/auth/callback?token=${encodeURIComponent(token)}&is_new=${is_new}`
+      console.log(`[OAuth Callback] Login success - Redirecting to: ${redirectUrl}`)
+      return c.redirect(redirectUrl, 302)
     }
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)
     console.error('OAuth callback error:', e)
-    return c.redirect(`${FRONTEND_URL}/auth/callback?error=${encodeURIComponent(msg)}`, 302)
+    const redirectUrl = `${FRONTEND_URL}/auth/callback?error=${encodeURIComponent(msg)}`
+    console.log(`[OAuth Callback] Error - Redirecting to: ${redirectUrl}`)
+    return c.redirect(redirectUrl, 302)
   }
 })
 
