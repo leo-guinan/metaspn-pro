@@ -22,6 +22,9 @@ import {
   getRepo,
   seedRepo,
   encryptToken,
+  decryptToken,
+  seedFeedRepo,
+  setupWebhook,
 } from './services/github.js'
 import { pushToGitHubForUser } from './services/github-push.js'
 import { syncTwitterArchiveToGitHub, checkArchiveAvailable } from './services/twitter-github-sync.js'
@@ -51,12 +54,36 @@ import {
   updateEpisodeGuest,
 } from './mastra/tools/guest-management-tools.js'
 
+// #region agent log
+fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'index.ts:54',message:'About to import oauth-urls',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+// #endregion
 import {
   FRONTEND_URL,
   getGitHubCallbackUrl,
   getTwitterCallbackUrl,
   getCorsOrigins,
 } from './config/oauth-urls.js'
+// #region agent log
+fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'index.ts:60',message:'oauth-urls imported',data:{frontendUrl:FRONTEND_URL},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+// #endregion
+import { processWebhookEvent, type GitHubPushEvent } from './services/network-processor.js'
+import { createHmac } from 'crypto'
+import {
+  addWatch,
+  removeWatch,
+  listWatches,
+  listWatchers,
+  updateWatchGates,
+} from './services/network-watch.js'
+import { createHubRepo, syncHubRepo, getHubStatus } from './services/hub-manager.js'
+import { markFeedItemProcessed, saveFeedItem } from './services/feed-generator.js'
+import { seedFeedRepo, setupWebhook } from './services/github.js'
+import {
+  findSimilarUsers,
+  getWatchSuggestions,
+  getEmergingTopics,
+} from './services/network-discovery.js'
+import { pool } from './db/index.js'
 
 // OAuth store: state -> { user_id?, codeVerifier? (for Twitter), isLinking?: boolean, token?: string }
 const oauthStore = new Map<string, { user_id?: string; codeVerifier?: string; isLinking?: boolean; token?: string }>()
@@ -114,8 +141,14 @@ app.get('/api/auth/:provider/login', (c) => {
       oauthStore.set(state, { codeVerifier, isLinking: false })
       pruneOAuthStore()
       const callbackUrl = getTwitterCallbackUrl()
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'index.ts:125',message:'Twitter OAuth login - callback URL',data:{frontendUrl:FRONTEND_URL,callbackUrl},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+      // #endregion
       console.log(`[OAuth Login] Twitter - FRONTEND_URL: ${FRONTEND_URL}, Callback URL: ${callbackUrl}`)
       const url = getTwitterOAuthAuthUrl(state, codeChallenge)
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'index.ts:128',message:'Twitter OAuth redirect URL',data:{redirectUrl:url},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+      // #endregion
       console.log(`[OAuth Login] Twitter - Redirecting to OAuth provider: ${url}`)
       return c.redirect(url, 302)
     } else {
@@ -123,8 +156,14 @@ app.get('/api/auth/:provider/login', (c) => {
       oauthStore.set(state, { isLinking: false })
       pruneOAuthStore()
       const callbackUrl = getGitHubCallbackUrl()
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'index.ts:132',message:'GitHub OAuth login - callback URL',data:{frontendUrl:FRONTEND_URL,callbackUrl},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+      // #endregion
       console.log(`[OAuth Login] GitHub - FRONTEND_URL: ${FRONTEND_URL}, Callback URL: ${callbackUrl}`)
       const url = getOAuthAuthUrl(state, callbackUrl)
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'index.ts:135',message:'GitHub OAuth redirect URL',data:{redirectUrl:url},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+      // #endregion
       console.log(`[OAuth Login] GitHub - Redirecting to OAuth provider: ${url}`)
       return c.redirect(url, 302)
     }
@@ -143,6 +182,9 @@ app.get('/api/auth/:provider/callback', async (c) => {
     const error = c.req.query('error')
 
     // Log redirect URL for debugging
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'index.ts:146',message:'OAuth callback entry',data:{provider,frontendUrl:FRONTEND_URL,frontendUrlEnv:process.env.FRONTEND_URL||'NOT SET'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+    // #endregion
     console.log(`[OAuth Callback] Provider: ${provider}, FRONTEND_URL: ${FRONTEND_URL}, env.FRONTEND_URL: ${process.env.FRONTEND_URL}`)
 
     if (error) {
@@ -439,7 +481,7 @@ app.post('/api/integrations/github/connect', requireAuth, async (c) => {
     let is_created_by_us: boolean
 
     if (body.create_new) {
-      const name = body.repo_name || 'metaspn-listening-log'
+      const name = body.repo_name || 'metaspn-content'
       const isPrivate = !!body.is_private
       try {
         const created = await createRepo(octokit, name, isPrivate)
@@ -526,6 +568,356 @@ app.post('/api/integrations/github/push', requireAuth, async (c) => {
     const user_id = c.get('user_id')
     const result = await pushToGitHubForUser(user_id)
     return c.json(result)
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return c.json({ error: msg }, 500)
+  }
+})
+
+// GitHub: webhook endpoint (no auth required - uses signature verification)
+app.post('/api/webhooks/github', async (c) => {
+  try {
+    // Verify webhook signature
+    const signature = c.req.header('X-Hub-Signature-256')
+    const eventType = c.req.header('X-GitHub-Event')
+    const deliveryId = c.req.header('X-GitHub-Delivery')
+    
+    if (!signature || !eventType) {
+      return c.json({ error: 'Missing required headers' }, 400)
+    }
+    
+    // Get webhook secret from environment
+    const webhookSecret = process.env.GITHUB_WEBHOOK_SECRET
+    if (!webhookSecret) {
+      console.error('GITHUB_WEBHOOK_SECRET not configured')
+      return c.json({ error: 'Webhook secret not configured' }, 500)
+    }
+    
+    // Get raw body for signature verification
+    const rawBody = await c.req.text()
+    
+    // Verify signature
+    const expectedSignature = 'sha256=' + createHmac('sha256', webhookSecret)
+      .update(rawBody)
+      .digest('hex')
+    
+    if (signature !== expectedSignature) {
+      console.error('Webhook signature verification failed')
+      return c.json({ error: 'Invalid signature' }, 401)
+    }
+    
+    // Parse event
+    const event = JSON.parse(rawBody) as GitHubPushEvent
+    
+    // Only process push events for now
+    if (eventType === 'push') {
+      // Process asynchronously (don't block response)
+      processWebhookEvent(event).catch((error) => {
+        console.error('Error processing webhook event:', error)
+      })
+      
+      return c.json({ status: 'received', delivery_id: deliveryId })
+    }
+    
+    // Ignore other event types
+    return c.json({ status: 'ignored', event_type: eventType })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error('Webhook error:', msg)
+    return c.json({ error: msg }, 500)
+  }
+})
+
+// ============================================================================
+// Network Protocol Endpoints
+// ============================================================================
+
+// Network: Create hub repo
+app.post('/api/network/hub/create', requireAuth, async (c) => {
+  try {
+    const user_id = c.get('user_id')
+    const body = (await c.req.json()) as {
+      repo_name?: string
+      is_private?: boolean
+      code?: string
+      personal_access_token?: string
+    }
+    
+    // Get GitHub token
+    let token: string
+    if (body.personal_access_token) {
+      token = body.personal_access_token
+    } else if (body.code) {
+      const entry = oauthStore.get(body.code)
+      if (!entry || !entry.token) return c.json({ error: 'Invalid or expired code' }, 400)
+      token = entry.token
+      oauthStore.delete(body.code)
+    } else {
+      // Try to get from existing repo connection
+      const repoResult = await pool.query(
+        `SELECT access_token_encrypted FROM user_github_repos WHERE user_id = $1 LIMIT 1`,
+        [user_id]
+      )
+      if (repoResult.rows.length === 0) {
+        return c.json({ error: 'No GitHub token available. Provide code or personal_access_token' }, 400)
+      }
+      token = decryptToken(repoResult.rows[0].access_token_encrypted)
+    }
+    
+    const octokit = createOctokit(token)
+    const repoName = body.repo_name || 'metaspn-hub'
+    const isPrivate = body.is_private ?? true
+    
+    const hub = await createHubRepo(user_id, octokit, repoName, isPrivate)
+    
+    // Save to database
+    const encrypted = encryptToken(token)
+    await pool.query(
+      `INSERT INTO network_hubs (user_id, repo_owner, repo_name, branch, access_token_encrypted)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (user_id) DO UPDATE SET
+         repo_owner = EXCLUDED.repo_owner,
+         repo_name = EXCLUDED.repo_name,
+         branch = EXCLUDED.branch,
+         access_token_encrypted = EXCLUDED.access_token_encrypted`,
+      [user_id, hub.owner, hub.repo, hub.branch, encrypted]
+    )
+    
+    return c.json({ repo_owner: hub.owner, repo_name: hub.repo, branch: hub.branch })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return c.json({ error: msg }, 500)
+  }
+})
+
+// Network: Get hub status
+app.get('/api/network/hub/status', requireAuth, async (c) => {
+  try {
+    const user_id = c.get('user_id')
+    const status = await getHubStatus(user_id)
+    return c.json(status)
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return c.json({ error: msg }, 500)
+  }
+})
+
+// Network: Sync hub
+app.post('/api/network/hub/sync', requireAuth, async (c) => {
+  try {
+    const user_id = c.get('user_id')
+    await syncHubRepo(user_id)
+    return c.json({ status: 'synced' })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return c.json({ error: msg }, 500)
+  }
+})
+
+// Network: Create feed repo
+app.post('/api/network/feed/create', requireAuth, async (c) => {
+  try {
+    const user_id = c.get('user_id')
+    const body = (await c.req.json()) as {
+      repo_name?: string
+      is_private?: boolean
+      code?: string
+      personal_access_token?: string
+    }
+    
+    // Get GitHub token (similar to hub creation)
+    let token: string
+    if (body.personal_access_token) {
+      token = body.personal_access_token
+    } else if (body.code) {
+      const entry = oauthStore.get(body.code)
+      if (!entry || !entry.token) return c.json({ error: 'Invalid or expired code' }, 400)
+      token = entry.token
+      oauthStore.delete(body.code)
+    } else {
+      const repoResult = await pool.query(
+        `SELECT access_token_encrypted FROM user_github_repos WHERE user_id = $1 LIMIT 1`,
+        [user_id]
+      )
+      if (repoResult.rows.length === 0) {
+        return c.json({ error: 'No GitHub token available' }, 400)
+      }
+      token = decryptToken(repoResult.rows[0].access_token_encrypted)
+    }
+    
+    const octokit = createOctokit(token)
+    const repoName = body.repo_name || 'metaspn-feed'
+    const isPrivate = body.is_private ?? true
+    
+    const created = await createRepo(octokit, repoName, isPrivate)
+    const info = await getRepo(octokit, created.owner, created.repo)
+    const branch = info.default_branch
+    
+    await seedFeedRepo(octokit, created.owner, created.repo, branch, user_id)
+    
+    // Save to database
+    const encrypted = encryptToken(token)
+    await pool.query(
+      `INSERT INTO network_feeds (user_id, repo_owner, repo_name, branch, access_token_encrypted)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (user_id) DO UPDATE SET
+         repo_owner = EXCLUDED.repo_owner,
+         repo_name = EXCLUDED.repo_name,
+         branch = EXCLUDED.branch,
+         access_token_encrypted = EXCLUDED.access_token_encrypted`,
+      [user_id, created.owner, created.repo, branch, encrypted]
+    )
+    
+    return c.json({ repo_owner: created.owner, repo_name: created.repo, branch })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return c.json({ error: msg }, 500)
+  }
+})
+
+// Network: Add watch
+app.post('/api/network/watch', requireAuth, async (c) => {
+  try {
+    const user_id = c.get('user_id')
+    const body = (await c.req.json()) as {
+      watched_user_id: string
+      watched_repo_owner: string
+      watched_repo_name: string
+      watch_type: 'full' | 'selective' | 'minimal'
+      gates?: Array<{
+        gate_type: string
+        config: Record<string, unknown>
+        is_enabled?: boolean
+        priority?: number
+      }>
+    }
+    
+    const watch = await addWatch(user_id, body)
+    return c.json(watch)
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return c.json({ error: msg }, 500)
+  }
+})
+
+// Network: Remove watch
+app.delete('/api/network/watch/:watch_id', requireAuth, async (c) => {
+  try {
+    const user_id = c.get('user_id')
+    const watch_id = c.req.param('watch_id')
+    await removeWatch(watch_id, user_id)
+    return c.json({ status: 'deleted' })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return c.json({ error: msg }, 500)
+  }
+})
+
+// Network: List watches
+app.get('/api/network/watching', requireAuth, async (c) => {
+  try {
+    const user_id = c.get('user_id')
+    const watches = await listWatches(user_id)
+    return c.json(watches)
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return c.json({ error: msg }, 500)
+  }
+})
+
+// Network: List watchers
+app.get('/api/network/watchers', requireAuth, async (c) => {
+  try {
+    const user_id = c.get('user_id')
+    const watchers = await listWatchers(user_id)
+    return c.json(watchers)
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return c.json({ error: msg }, 500)
+  }
+})
+
+// Network: Update watch gates
+app.put('/api/network/watch/:watch_id/gates', requireAuth, async (c) => {
+  try {
+    const user_id = c.get('user_id')
+    const watch_id = c.req.param('watch_id')
+    const body = (await c.req.json()) as {
+      gates: Array<{
+        gate_type: string
+        config: Record<string, unknown>
+        is_enabled?: boolean
+        priority?: number
+      }>
+    }
+    
+    const watch = await updateWatchGates(watch_id, user_id, body.gates)
+    return c.json(watch)
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return c.json({ error: msg }, 500)
+  }
+})
+
+// Network: Process feed item
+app.post('/api/network/feed/:item_id/process', requireAuth, async (c) => {
+  try {
+    const user_id = c.get('user_id')
+    const item_id = c.req.param('item_id')
+    await markFeedItemProcessed(user_id, item_id)
+    return c.json({ status: 'processed' })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return c.json({ error: msg }, 500)
+  }
+})
+
+// Network: Save feed item
+app.post('/api/network/feed/:item_id/save', requireAuth, async (c) => {
+  try {
+    const user_id = c.get('user_id')
+    const item_id = c.req.param('item_id')
+    await saveFeedItem(user_id, item_id)
+    return c.json({ status: 'saved' })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return c.json({ error: msg }, 500)
+  }
+})
+
+// Network: Discover similar users
+app.get('/api/network/discover/similar', requireAuth, async (c) => {
+  try {
+    const user_id = c.get('user_id')
+    const limit = parseInt(c.req.query('limit') || '10', 10)
+    const similar = await findSimilarUsers(user_id, limit)
+    return c.json(similar)
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return c.json({ error: msg }, 500)
+  }
+})
+
+// Network: Get watch suggestions
+app.get('/api/network/discover/suggestions', requireAuth, async (c) => {
+  try {
+    const user_id = c.get('user_id')
+    const limit = parseInt(c.req.query('limit') || '10', 10)
+    const suggestions = await getWatchSuggestions(user_id, limit)
+    return c.json(suggestions)
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return c.json({ error: msg }, 500)
+  }
+})
+
+// Network: Get emerging topics
+app.get('/api/network/discover/emerging', requireAuth, async (c) => {
+  try {
+    const days = parseInt(c.req.query('days') || '7', 10)
+    const limit = parseInt(c.req.query('limit') || '10', 10)
+    const topics = await getEmergingTopics(days, limit)
+    return c.json(topics)
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)
     return c.json({ error: msg }, 500)
@@ -1372,6 +1764,9 @@ app.get('/api/episodes/:episode_id/analytics', requireAuth, async (c) => {
 await (server as any).init()
 
 // Log environment configuration at startup (critical for debugging OAuth)
+// #region agent log
+fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'index.ts:1372',message:'Server initialized, logging config',data:{nodeEnv:process.env.NODE_ENV||'not set',frontendUrlEnv:process.env.FRONTEND_URL||'NOT SET',frontendUrlConfig:FRONTEND_URL},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+// #endregion
 console.log('='.repeat(60))
 console.log('[STARTUP] Environment Configuration:')
 console.log(`  NODE_ENV: ${process.env.NODE_ENV || 'not set'}`)

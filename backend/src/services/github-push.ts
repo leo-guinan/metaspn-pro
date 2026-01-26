@@ -3,10 +3,15 @@ import {
   createOctokit,
   decryptToken,
   appendToEventsJsonl,
+  appendToSourceEvents,
   getFileContent,
   createOrUpdateFile,
   seedRepo,
 } from './github.js'
+import {
+  transformPodcastEventToNewSchema,
+  type TransformedPodcastEvent,
+} from './github-event-transform.js'
 
 const DEMO_USER_ID = '00000000-0000-0000-0000-000000000000'
 
@@ -80,6 +85,107 @@ async function getNewEventsSince(userId: string, since: string | null): Promise<
   return result.rows.map((row) => JSON.stringify(row))
 }
 
+/**
+ * Get new events with podcast and episode details for transformation
+ */
+async function getNewEventsWithDetails(
+  userId: string,
+  since: string | null
+): Promise<Array<{
+  event: any
+  podcast: any
+  episode: any
+}>> {
+  let query = `
+    SELECT 
+      e.*,
+      p.podcast_id as p_podcast_id,
+      p.title as p_title,
+      p.description as p_description,
+      p.rss_feed_url as p_rss_feed_url,
+      p.website_url as p_website_url,
+      p.image_url as p_image_url,
+      ep.episode_id as ep_episode_id,
+      ep.title as ep_title,
+      ep.description as ep_description,
+      ep.duration_sec as ep_duration_sec,
+      ep.release_time as ep_release_time,
+      ep.audio_url as ep_audio_url,
+      ep.transcript_url as ep_transcript_url
+    FROM events e
+    JOIN podcasts p ON e.podcast_id = p.podcast_id
+    JOIN episodes ep ON e.episode_id = ep.episode_id
+    WHERE e.user_id = $1
+  `
+  const params: (string | Date)[] = [userId]
+  if (since) {
+    query += ` AND e.timestamp_utc > $2`
+    params.push(since)
+  }
+  query += ` ORDER BY e.timestamp_utc ASC`
+  
+  const result = await pool.query(query, params)
+  
+  return result.rows.map((row) => ({
+    event: {
+      event_id: row.event_id,
+      user_id: row.user_id,
+      episode_id: row.episode_id,
+      podcast_id: row.podcast_id,
+      event_type: row.event_type,
+      timestamp_utc: row.timestamp_utc,
+      playhead_sec: row.playhead_sec,
+      episode_duration_sec: row.episode_duration_sec,
+      client: row.client,
+      metadata: row.metadata,
+    },
+    podcast: {
+      podcast_id: row.p_podcast_id,
+      title: row.p_title,
+      description: row.p_description,
+      rss_feed_url: row.p_rss_feed_url,
+      website_url: row.p_website_url,
+      image_url: row.p_image_url,
+    },
+    episode: {
+      episode_id: row.ep_episode_id,
+      title: row.ep_title,
+      description: row.ep_description,
+      duration_sec: row.ep_duration_sec,
+      release_time: row.ep_release_time,
+      audio_url: row.ep_audio_url,
+      transcript_url: row.ep_transcript_url,
+    },
+  }))
+}
+
+/**
+ * Transform and append podcast events to the new structure
+ */
+async function transformAndAppendPodcastEvents(
+  octokit: any,
+  owner: string,
+  repo: string,
+  branch: string,
+  userId: string,
+  since: string | null
+): Promise<void> {
+  const eventsWithDetails = await getNewEventsWithDetails(userId, since)
+  
+  if (eventsWithDetails.length === 0) return
+  
+  // Transform events to new schema
+  const transformedEvents: TransformedPodcastEvent[] = eventsWithDetails.map(({ event, podcast, episode }) =>
+    transformPodcastEventToNewSchema(event, podcast, episode)
+  )
+  
+  // Convert to JSONL strings
+  const jsonlLines = transformedEvents.map((e) => JSON.stringify(e))
+  
+  // Append to sources/podcasts/listening-events.jsonl
+  await appendToSourceEvents(octokit, owner, repo, branch, 'podcast', 'listening', jsonlLines)
+}
+
 export interface PushResult {
   pushed: boolean
   last_push_at?: string
@@ -118,9 +224,29 @@ export async function pushToGitHubForUser(userId: string): Promise<PushResult> {
     const since = row.last_push_at ? new Date(row.last_push_at).toISOString() : null
 
     try {
-      const newLines = await getNewEventsSince(uid, since)
-      if (newLines.length > 0) {
-        await appendToEventsJsonl(octokit, repo_owner, repo_name, branch, newLines)
+      // Check meta.json to determine which structure to use
+      const metaPath = 'meta.json'
+      const metaExisting = await getFileContent(octokit, repo_owner, repo_name, metaPath, branch)
+      let schemaVersion = '1.0.0'
+      
+      if (metaExisting) {
+        try {
+          const meta = JSON.parse(metaExisting.content) as { schema_version?: string | number }
+          schemaVersion = String(meta.schema_version || '1.0.0')
+        } catch {
+          // If parsing fails, assume old structure
+        }
+      }
+      
+      // Use new structure (2.0.0+) for transformed events
+      if (schemaVersion >= '2.0.0') {
+        await transformAndAppendPodcastEvents(octokit, repo_owner, repo_name, branch, uid, since)
+      } else {
+        // Fallback to old structure for backward compatibility
+        const newLines = await getNewEventsSince(uid, since)
+        if (newLines.length > 0) {
+          await appendToEventsJsonl(octokit, repo_owner, repo_name, branch, newLines)
+        }
       }
 
       const fanMd = await getFanSummaryMarkdown(uid)
@@ -167,12 +293,16 @@ export async function pushToGitHubForUser(userId: string): Promise<PushResult> {
         try {
           const meta = JSON.parse(metaExisting.content) as Record<string, unknown>
           meta.last_sync_utc = now
+          // Ensure schema_version is set to 2.0.0 for new structure
+          if (!meta.schema_version || (typeof meta.schema_version === 'number' && meta.schema_version < 2) || (typeof meta.schema_version === 'string' && meta.schema_version < '2.0.0')) {
+            meta.schema_version = '2.0.0'
+          }
           metaContent = JSON.stringify(meta, null, 2)
         } catch {
-          metaContent = JSON.stringify({ schema_version: 1, last_sync_utc: now, metaspn_user_id: uid }, null, 2)
+          metaContent = JSON.stringify({ schema_version: '2.0.0', last_sync_utc: now, metaspn_user_id: uid }, null, 2)
         }
       } else {
-        metaContent = JSON.stringify({ schema_version: 1, last_sync_utc: now, metaspn_user_id: uid }, null, 2)
+        metaContent = JSON.stringify({ schema_version: '2.0.0', last_sync_utc: now, metaspn_user_id: uid }, null, 2)
       }
       await createOrUpdateFile(
         octokit,

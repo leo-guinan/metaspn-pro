@@ -136,6 +136,36 @@ async function startWorker() {
     })
   }
 
+  // Network: Hub sync - Daily at 3 AM UTC
+  cron.schedule('0 3 * * *', async () => {
+    console.log('📅 Running scheduled: Hub Sync (3 AM UTC)')
+    try {
+      const { syncHubRepo } = await import('./services/hub-manager.js')
+      const hubs = await pool.query('SELECT user_id FROM network_hubs')
+      for (const row of hubs.rows) {
+        try {
+          await syncHubRepo(row.user_id)
+        } catch (e: any) {
+          console.error(`❌ Hub sync failed for user ${row.user_id}:`, e.message)
+        }
+      }
+    } catch (e: any) {
+      console.error('❌ Hub sync job error:', e.message)
+    }
+  })
+
+  // Network: Feed digest generation - Daily at 9 AM UTC
+  cron.schedule('0 9 * * *', async () => {
+    console.log('📅 Running scheduled: Feed Digest Generation (9 AM UTC)')
+    // TODO: Implement digest generation
+  })
+
+  // Network: Weekly digest - Monday at 10 AM UTC
+  cron.schedule('0 10 * * 1', async () => {
+    console.log('📅 Running scheduled: Weekly Feed Digest (Monday 10 AM UTC)')
+    // TODO: Implement weekly digest generation
+  })
+
   console.log('✅ Worker started successfully')
   console.log('📋 Scheduled jobs:')
   console.log('   - Transcript Discovery: Daily at 2 AM UTC')
@@ -144,6 +174,9 @@ async function startWorker() {
   console.log('   - Monthly Digest: 1st of month at 1 AM UTC')
   console.log('   - Enhancement Watcher: Every 15 minutes')
   console.log(`   - GitHub push: ${githubCron}`)
+  console.log('   - Hub Sync: Daily at 3 AM UTC')
+  console.log('   - Feed Digest (Daily): Daily at 9 AM UTC')
+  console.log('   - Feed Digest (Weekly): Monday at 10 AM UTC')
 
   // Keep the process alive
   process.on('SIGTERM', () => {

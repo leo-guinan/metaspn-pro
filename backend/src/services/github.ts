@@ -161,25 +161,129 @@ export async function appendToEventsJsonl(
   )
 }
 
-const README_TEMPLATE = `# MetaSPN Listening Log
+/**
+ * Append events to source-specific event log files in the new structure
+ */
+export async function appendToSourceEvents(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  branch: string,
+  sourceType: 'podcast' | 'youtube' | 'twitter' | 'blog' | 'book',
+  eventType: 'listening' | 'viewing' | 'reading' | 'writing' | 'posting',
+  transformedEvents: string[]
+): Promise<void> {
+  if (transformedEvents.length === 0) return
+  
+  const path = `sources/${sourceType}/${eventType}-events.jsonl`
+  const existing = await getFileContent(octokit, owner, repo, path, branch)
+  const current = existing ? existing.content : ''
+  const appended = current
+    ? current.endsWith('\n')
+      ? current + transformedEvents.join('\n')
+      : current + '\n' + transformedEvents.join('\n')
+    : transformedEvents.join('\n')
+  
+  const commitMessage = `chore(sources): append ${transformedEvents.length} ${sourceType} ${eventType} event${transformedEvents.length === 1 ? '' : 's'}`
+  
+  await createOrUpdateFile(
+    octokit,
+    owner,
+    repo,
+    path,
+    appended,
+    commitMessage,
+    branch,
+    existing?.sha ?? null
+  )
+}
 
-This repository stores your [MetaSPN](https://metaspn.com) listening data as an append-only log.
+/**
+ * Append artifacts to artifact-specific files in the new structure
+ */
+export async function appendToArtifacts(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  branch: string,
+  artifactType: 'twitter' | 'blog' | 'youtube' | 'podcast',
+  artifactName: 'tweets' | 'posts' | 'videos' | 'episodes',
+  transformedArtifacts: string[]
+): Promise<void> {
+  if (transformedArtifacts.length === 0) return
+  
+  const path = `artifacts/${artifactType}/${artifactName}.jsonl`
+  const existing = await getFileContent(octokit, owner, repo, path, branch)
+  const current = existing ? existing.content : ''
+  const appended = current
+    ? current.endsWith('\n')
+      ? current + transformedArtifacts.join('\n')
+      : current + '\n' + transformedArtifacts.join('\n')
+    : transformedArtifacts.join('\n')
+  
+  const commitMessage = `chore(artifacts): append ${transformedArtifacts.length} ${artifactType} ${artifactName}`
+  
+  await createOrUpdateFile(
+    octokit,
+    owner,
+    repo,
+    path,
+    appended,
+    commitMessage,
+    branch,
+    existing?.sha ?? null
+  )
+}
+
+const README_TEMPLATE = `# MetaSPN Content Repository
+
+This repository stores your [MetaSPN](https://metaspn.com) content consumption and creation data in a structured, append-only format.
 
 ## Structure
 
-- **\`log/events.jsonl\`** – Append-only event ledger. One JSON object per line (same shape as the [API export](https://metaspn.com/docs/api#event-ledger)). New listening events are appended; existing lines are never modified.
-- **\`reports/\`** – Fan summary and influence digest (Markdown), updated on each push.
-- **\`preferences/\`** – Podcast preferences (JSON).
-- **\`meta.json\`** – Schema version, last sync time, and optional user id.
+### Sources (\`sources/\`)
+Raw event logs for content consumption (append-only, never edited):
+- **\`sources/podcasts/listening-events.jsonl\`** – Podcast listening events
+- **\`sources/youtube/viewing-events.jsonl\`** – YouTube viewing events
+- **\`sources/twitter/reading-events.jsonl\`** – Twitter reading events
+- **\`sources/twitter/posting-events.jsonl\`** – Twitter posting events
+- **\`sources/blogs/reading-events.jsonl\`** – Blog reading events
+- **\`sources/blogs/writing-events.jsonl\`** – Blog writing events
+- **\`sources/books/reading-events.jsonl\`** – Book reading events
+
+### Artifacts (\`artifacts/\`)
+Content you created (your output):
+- **\`artifacts/twitter/tweets.jsonl\`** – Your tweets
+- **\`artifacts/blog/posts.jsonl\`** – Your blog posts
+- **\`artifacts/youtube/videos.jsonl\`** – Your YouTube videos
+- **\`artifacts/podcast/episodes.jsonl\`** – Your podcast episodes
+
+### Preferences (\`preferences/\`)
+Configuration and subscriptions:
+- **\`preferences/podcasts.json\`** – Podcast subscriptions and preferences
+- **\`preferences/youtube.json\`** – YouTube channel subscriptions
+- **\`preferences/creators.json\`** – Followed creators across platforms
+
+### Reports (\`reports/\`)
+Computed views and analyses (regenerated on push):
+- **\`reports/influence-digest.md\`** – Summary of influences
+- **\`reports/trajectory-summary.md\`** – Your development over time
+- **\`reports/game-signature.json\`** – G1-G6 distribution analysis
+- **\`reports/timestamps/\`** – Time-windowed analyses
+
+### Metadata
+- **\`meta.json\`** – Schema version, user ID, last sync timestamps
 
 ## Usage
 
-Data is pushed automatically on schedule or when you click "Push to GitHub" in MetaSPN. You can also consume \`log/events.jsonl\` locally for analysis.
+Data is pushed automatically on schedule or when you click "Push to GitHub" in MetaSPN. All event logs are append-only (never modified, only appended). Reports are regenerated on each push.
+
+You can consume the JSONL files locally for analysis, or use the open-source MetaSPN analysis tools.
 `
 
 const META_TEMPLATE = (lastSync: string, userId?: string) =>
   JSON.stringify(
-    { schema_version: 1, last_sync_utc: lastSync, metaspn_user_id: userId ?? null },
+    { schema_version: '2.0.0', last_sync_utc: lastSync, metaspn_user_id: userId ?? null },
     null,
     2
   )
@@ -193,40 +297,266 @@ export async function seedRepo(
 ): Promise<void> {
   const now = new Date().toISOString()
 
+  // Core files
   const files: { path: string; content: string; message: string }[] = [
     { path: 'README.md', content: README_TEMPLATE, message: 'chore: add README' },
-    { path: 'log/.gitkeep', content: '', message: 'chore: add log/.gitkeep' },
-    { path: 'reports/.gitkeep', content: '', message: 'chore: add reports/.gitkeep' },
-    { path: 'preferences/.gitkeep', content: '', message: 'chore: add preferences/.gitkeep' },
     { path: 'meta.json', content: META_TEMPLATE(now, userId), message: 'chore: add meta.json' },
+    { path: '.gitignore', content: '# Sensitive data\n.env\n*.key\n', message: 'chore: add .gitignore' },
   ]
 
+  // Create directory structure with .gitkeep files
+  const directories = [
+    // Sources
+    'sources/podcasts',
+    'sources/youtube',
+    'sources/twitter',
+    'sources/blogs',
+    'sources/books',
+    // Artifacts
+    'artifacts/twitter',
+    'artifacts/blog',
+    'artifacts/youtube',
+    'artifacts/podcast',
+    // Preferences
+    'preferences',
+    // Reports
+    'reports/timestamps',
+    // Optional embeddings
+    'embeddings/sources/podcasts',
+    'embeddings/artifacts/twitter',
+  ]
+
+  for (const dir of directories) {
+    const gitkeepPath = `${dir}/.gitkeep`
+    const existing = await getFileContent(octokit, owner, repo, gitkeepPath, branch)
+    if (!existing) {
+      files.push({ path: gitkeepPath, content: '', message: `chore: create ${dir} directory` })
+    }
+  }
+
+  // Initialize source event files (empty)
+  const sourceEventFiles = [
+    'sources/podcasts/listening-events.jsonl',
+    'sources/youtube/viewing-events.jsonl',
+    'sources/twitter/reading-events.jsonl',
+    'sources/twitter/posting-events.jsonl',
+    'sources/blogs/reading-events.jsonl',
+    'sources/blogs/writing-events.jsonl',
+    'sources/books/reading-events.jsonl',
+  ]
+
+  for (const path of sourceEventFiles) {
+    const existing = await getFileContent(octokit, owner, repo, path, branch)
+    if (!existing) {
+      files.push({ path, content: '', message: `chore: initialize ${path}` })
+    }
+  }
+
+  // Initialize artifact files (empty)
+  const artifactFiles = [
+    'artifacts/twitter/tweets.jsonl',
+    'artifacts/blog/posts.jsonl',
+    'artifacts/youtube/videos.jsonl',
+    'artifacts/podcast/episodes.jsonl',
+  ]
+
+  for (const path of artifactFiles) {
+    const existing = await getFileContent(octokit, owner, repo, path, branch)
+    if (!existing) {
+      files.push({ path, content: '', message: `chore: initialize ${path}` })
+    }
+  }
+
+  // Initialize preference files
+  const preferenceFiles = [
+    { path: 'preferences/podcasts.json', content: '[]' },
+    { path: 'preferences/youtube.json', content: '[]' },
+    { path: 'preferences/creators.json', content: '[]' },
+  ]
+
+  for (const { path, content } of preferenceFiles) {
+    const existing = await getFileContent(octokit, owner, repo, path, branch)
+    if (!existing) {
+      files.push({ path, content, message: `chore: initialize ${path}` })
+    }
+  }
+
+  // Initialize report files
+  const reportFiles = [
+    { path: 'reports/influence-digest.md', content: '# Influence Digest\n\nNo data yet.\n' },
+    { path: 'reports/trajectory-summary.md', content: '# Trajectory Summary\n\nNo data yet.\n' },
+    { path: 'reports/game-signature.json', content: JSON.stringify({ period: new Date().toISOString().slice(0, 7), generated_at: now, overall_signature: {} }, null, 2) },
+  ]
+
+  for (const { path, content } of reportFiles) {
+    const existing = await getFileContent(octokit, owner, repo, path, branch)
+    if (!existing) {
+      files.push({ path, content, message: `chore: initialize ${path}` })
+    }
+  }
+
+  // Create all files
   for (const f of files) {
     const existing = await getFileContent(octokit, owner, repo, f.path, branch)
-    if (!existing) await createOrUpdateFile(octokit, owner, repo, f.path, f.content, f.message, branch, null)
+    if (!existing) {
+      await createOrUpdateFile(octokit, owner, repo, f.path, f.content, f.message, branch, null)
+    }
   }
+}
 
-  const logPath = 'log/events.jsonl'
-  const logExisting = await getFileContent(octokit, owner, repo, logPath, branch)
-  if (!logExisting) {
-    await createOrUpdateFile(octokit, owner, repo, logPath, '', 'chore: seed MetaSPN structure', branch, null)
-  }
+/**
+ * Seed feed repository with initial structure
+ */
+export async function seedFeedRepo(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  branch: string,
+  userId: string
+): Promise<void> {
+  const now = new Date().toISOString()
+  
+  const feedReadme = `# MetaSPN Feed Repository
 
-  const fanPath = 'reports/fan-summary.md'
-  const fanExisting = await getFileContent(octokit, owner, repo, fanPath, branch)
-  if (!fanExisting) {
-    await createOrUpdateFile(octokit, owner, repo, fanPath, '# Fan Summary\n\nNo data yet.\n', 'chore: add fan-summary', branch, null)
-  }
+This repository contains your aggregated feed from people you're watching in the MetaSPN Network.
 
-  const digestPath = 'reports/influence-digest.md'
-  const digestExisting = await getFileContent(octokit, owner, repo, digestPath, branch)
-  if (!digestExisting) {
-    await createOrUpdateFile(octokit, owner, repo, digestPath, '# Influence Digest\n\nNo data yet.\n', 'chore: add influence-digest', branch, null)
-  }
+## Structure
 
-  const prefsPath = 'preferences/podcasts.json'
-  const prefsExisting = await getFileContent(octokit, owner, repo, prefsPath, branch)
-  if (!prefsExisting) {
-    await createOrUpdateFile(octokit, owner, repo, prefsPath, '[]', 'chore: add podcasts preferences', branch, null)
+- \`inbox/items.jsonl\` - New feed items (unprocessed)
+- \`processed/YYYY-MM.jsonl\` - Processed items by month
+- \`saved/items.jsonl\` - Items you've bookmarked
+- \`watching/{user_id}.jsonl\` - Per-person feeds
+- \`digests/daily/YYYY-MM-DD.md\` - Daily digests
+- \`digests/weekly/YYYY-WW.md\` - Weekly digests
+
+## Usage
+
+This feed is automatically updated when people you watch push new content to their repos.
+
+You can read the JSONL files directly, or use the MetaSPN web interface to browse your feed.
+`
+  
+  const files: Array<{ path: string; content: string; message: string }> = [
+    { path: 'README.md', content: feedReadme, message: 'chore: add feed README' },
+    {
+      path: 'meta.json',
+      content: JSON.stringify(
+        {
+          schema_version: '1.0.0',
+          metaspn_user_id: userId,
+          created_at: now,
+          last_updated_utc: now,
+        },
+        null,
+        2
+      ),
+      message: 'chore: add feed meta.json',
+    },
+    { path: 'inbox/items.jsonl', content: '', message: 'chore: initialize inbox' },
+    { path: 'saved/items.jsonl', content: '', message: 'chore: initialize saved items' },
+  ]
+  
+  // Create directories
+  const directories = ['inbox', 'processed', 'saved', 'watching', 'digests/daily', 'digests/weekly']
+  for (const dir of directories) {
+    const gitkeepPath = `${dir}/.gitkeep`
+    const existing = await getFileContent(octokit, owner, repo, gitkeepPath, branch)
+    if (!existing) {
+      files.push({ path: gitkeepPath, content: '', message: `chore: create ${dir} directory` })
+    }
   }
+  
+  // Create all files
+  for (const f of files) {
+    const existing = await getFileContent(octokit, owner, repo, f.path, branch)
+    if (!existing) {
+      await createOrUpdateFile(octokit, owner, repo, f.path, f.content, f.message, branch, null)
+    }
+  }
+}
+
+/**
+ * Setup webhook on a repository
+ */
+export async function setupWebhook(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  webhookUrl: string,
+  secret: string
+): Promise<{ id: number; url: string }> {
+  // Check if webhook already exists
+  const existingHooks = await octokit.rest.repos.listWebhooks({ owner, repo })
+  
+  // Look for existing webhook with our URL
+  const existing = existingHooks.data.find((hook) => hook.config.url === webhookUrl)
+  
+  if (existing) {
+    // Update existing webhook
+    await octokit.rest.repos.updateWebhook({
+      owner,
+      repo,
+      hook_id: existing.id,
+      config: {
+        url: webhookUrl,
+        content_type: 'json',
+        secret,
+        insecure_ssl: '0',
+      },
+      events: ['push', 'release'],
+      active: true,
+    })
+    
+    return { id: existing.id, url: webhookUrl }
+  }
+  
+  // Create new webhook
+  const { data } = await octokit.rest.repos.createWebhook({
+    owner,
+    repo,
+    config: {
+      url: webhookUrl,
+      content_type: 'json',
+      secret,
+      insecure_ssl: '0',
+    },
+    events: ['push', 'release'],
+    active: true,
+  })
+  
+  return { id: data.id, url: webhookUrl }
+}
+
+/**
+ * Delete webhook from a repository
+ */
+export async function deleteWebhook(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  webhookId: number
+): Promise<void> {
+  await octokit.rest.repos.deleteWebhook({
+    owner,
+    repo,
+    hook_id: webhookId,
+  })
+}
+
+/**
+ * List webhooks on a repository
+ */
+export async function listWebhooks(
+  octokit: Octokit,
+  owner: string,
+  repo: string
+): Promise<Array<{ id: number; url: string; events: string[]; active: boolean }>> {
+  const { data } = await octokit.rest.repos.listWebhooks({ owner, repo })
+  
+  return data.map((hook) => ({
+    id: hook.id,
+    url: hook.config.url || '',
+    events: hook.events || [],
+    active: hook.active,
+  }))
 }

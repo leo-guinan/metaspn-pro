@@ -359,7 +359,78 @@ async function getFullArchive(username: string): Promise<TweetData[]> {
 
 
 /**
- * Format tweets as JSONL (one JSON object per line)
+ * Transform tweets to artifact schema format
+ */
+export function transformTweetsToArtifactSchema(tweets: TweetData[], userId: string): string[] {
+  return tweets.map((tweet) => {
+    const tweetId = tweet.id_str || String(tweet.id || '')
+    const createdAt = tweet.created_at || new Date().toISOString()
+    
+    // Determine tweet type
+    let tweetType: 'original' | 'reply' | 'retweet' | 'quote' = 'original'
+    if (tweet.in_reply_to_status_id_str) {
+      tweetType = 'reply'
+    }
+    // Note: retweet and quote detection would need additional fields
+    
+    // Build tweet URL (assuming we have username from context)
+    const tweetUrl = tweetId ? `https://twitter.com/i/web/status/${tweetId}` : undefined
+    
+    // Parse created_at to ISO format if it's in Twitter format
+    let createdAtIso: string
+    if (createdAt.includes('+0000') || createdAt.match(/^[A-Z][a-z]{2} /)) {
+      // Twitter format: "Mon Jan 01 12:00:00 +0000 2024"
+      try {
+        createdAtIso = new Date(createdAt).toISOString()
+      } catch {
+        createdAtIso = new Date().toISOString()
+      }
+    } else {
+      createdAtIso = createdAt
+    }
+    
+    const artifact = {
+      id: tweetId,
+      timestamp: createdAtIso,
+      user_id: userId,
+      version: '1.0.0',
+      tweet: {
+        id: tweetId,
+        text: tweet.full_text || '',
+        url: tweetUrl,
+        created_at: createdAtIso,
+        type: tweetType,
+        thread_id: tweet.in_reply_to_status_id_str ? undefined : tweetId, // Simplified
+      },
+      metrics: {
+        impressions: 0, // Not available from archive
+        likes: tweet.favorite_count || 0,
+        retweets: tweet.retweet_count || 0,
+        replies: 0, // Not available from archive
+        quotes: 0, // Not available from archive
+        bookmarks: 0, // Not available from archive
+      },
+      analysis: {
+        game_signature: {
+          G1: 0,
+          G2: 0,
+          G3: 0,
+          G4: 0,
+          G5: 0,
+          G6: 0,
+        },
+        themes: [] as string[],
+        sentiment: 'neutral',
+        complexity_score: 0,
+      },
+    }
+    
+    return JSON.stringify(artifact)
+  })
+}
+
+/**
+ * Format tweets as JSONL (one JSON object per line) - legacy format
  */
 export function formatTweetsAsJsonl(tweets: TweetData[]): string[] {
   return tweets.map((tweet) => {
@@ -391,7 +462,7 @@ export function formatTweetsAsJsonl(tweets: TweetData[]): string[] {
 }
 
 /**
- * Append tweets to GitHub repository as JSONL
+ * Append tweets to GitHub repository as JSONL (legacy path)
  */
 export async function appendTweetsToGitHub(
   octokit: Octokit,
@@ -418,6 +489,39 @@ export async function appendTweetsToGitHub(
     path,
     appended,
     `chore(log): sync ${tweetLines.length} tweet${tweetLines.length === 1 ? '' : 's'} from Twitter archive`,
+    branch,
+    existing?.sha ?? null
+  )
+}
+
+/**
+ * Append tweets to GitHub repository as artifacts (new structure)
+ */
+export async function appendTweetsToGitHubAsArtifacts(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  branch: string,
+  artifactLines: string[]
+): Promise<void> {
+  if (artifactLines.length === 0) return
+
+  const path = 'artifacts/twitter/tweets.jsonl'
+  const existing = await getFileContent(octokit, owner, repo, path, branch)
+  const current = existing ? existing.content : ''
+  const appended = current
+    ? current.endsWith('\n')
+      ? current + artifactLines.join('\n')
+      : current + '\n' + artifactLines.join('\n')
+    : artifactLines.join('\n')
+
+  await createOrUpdateFile(
+    octokit,
+    owner,
+    repo,
+    path,
+    appended,
+    `chore(artifacts): sync ${artifactLines.length} tweet${artifactLines.length === 1 ? '' : 's'} from Twitter archive`,
     branch,
     existing?.sha ?? null
   )
@@ -483,15 +587,33 @@ export async function syncTwitterArchiveToGitHub(userId: string): Promise<SyncRe
       }
     }
 
-    // 5. Format as JSONL
-    const tweetLines = formatTweetsAsJsonl(tweets)
-
-    // 6. Decrypt GitHub token and create Octokit instance
+    // 5. Decrypt GitHub token and create Octokit instance
     const decryptedToken = decryptToken(access_token_encrypted)
     const octokit = createOctokit(decryptedToken)
 
-    // 7. Append to GitHub
-    await appendTweetsToGitHub(octokit, repo_owner, repo_name, branch, tweetLines)
+    // 6. Check meta.json to determine which structure to use
+    const metaPath = 'meta.json'
+    const metaExisting = await getFileContent(octokit, repo_owner, repo_name, metaPath, branch)
+    let schemaVersion = '1.0.0'
+    
+    if (metaExisting) {
+      try {
+        const meta = JSON.parse(metaExisting.content) as { schema_version?: string | number }
+        schemaVersion = String(meta.schema_version || '1.0.0')
+      } catch {
+        // If parsing fails, assume old structure
+      }
+    }
+
+    // 7. Format and append to GitHub (use new structure if schema >= 2.0.0)
+    if (schemaVersion >= '2.0.0') {
+      const artifactLines = transformTweetsToArtifactSchema(tweets, userId)
+      await appendTweetsToGitHubAsArtifacts(octokit, repo_owner, repo_name, branch, artifactLines)
+    } else {
+      // Fallback to old structure for backward compatibility
+      const tweetLines = formatTweetsAsJsonl(tweets)
+      await appendTweetsToGitHub(octokit, repo_owner, repo_name, branch, tweetLines)
+    }
 
     // 8. Update last_twitter_sync_at in database
     const now = new Date()
@@ -516,12 +638,16 @@ export async function syncTwitterArchiveToGitHub(userId: string): Promise<SyncRe
             metaspn_user_id?: string
           }
           meta.last_twitter_sync_utc = now.toISOString()
+          // Ensure schema_version is set to 2.0.0 for new structure
+          if (!meta.schema_version || (typeof meta.schema_version === 'number' && meta.schema_version < 2) || (typeof meta.schema_version === 'string' && meta.schema_version < '2.0.0')) {
+            meta.schema_version = '2.0.0'
+          }
           metaContent = JSON.stringify(meta, null, 2)
         } catch {
           // If parsing fails, create new meta
           metaContent = JSON.stringify(
             {
-              schema_version: 1,
+              schema_version: '2.0.0',
               last_sync_utc: now.toISOString(),
               last_twitter_sync_utc: now.toISOString(),
               metaspn_user_id: userId,
@@ -533,7 +659,7 @@ export async function syncTwitterArchiveToGitHub(userId: string): Promise<SyncRe
       } else {
         metaContent = JSON.stringify(
           {
-            schema_version: 1,
+            schema_version: '2.0.0',
             last_sync_utc: now.toISOString(),
             last_twitter_sync_utc: now.toISOString(),
             metaspn_user_id: userId,

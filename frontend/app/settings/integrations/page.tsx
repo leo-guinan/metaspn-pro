@@ -33,7 +33,7 @@ export default function IntegrationsPage() {
   const [archiveStatus, setArchiveStatus] = useState<{ available: boolean; username: string | null } | null>(null)
   const [archiveStatusLoading, setArchiveStatusLoading] = useState(false)
   const [mode, setMode] = useState<'choose' | 'create' | 'existing'>('choose')
-  const [createName, setCreateName] = useState('metaspn-listening-log')
+  const [createName, setCreateName] = useState('metaspn-content')
   const [createPrivate, setCreatePrivate] = useState(false)
   const [existingOwnerRepo, setExistingOwnerRepo] = useState('')
   const [pat, setPat] = useState('')
@@ -137,7 +137,7 @@ export default function IntegrationsPage() {
       }
       if (mode === 'create') {
         payload.create_new = true
-        payload.repo_name = createName || 'metaspn-listening-log'
+        payload.repo_name = createName || 'metaspn-content'
         payload.is_private = createPrivate
       } else if (mode === 'existing') {
         const parts = existingOwnerRepo.split('/').map((s) => s.trim()).filter(Boolean)
@@ -447,7 +447,7 @@ export default function IntegrationsPage() {
                           type="text"
                           value={createName}
                           onChange={(e) => setCreateName(e.target.value)}
-                          placeholder="metaspn-listening-log"
+                          placeholder="metaspn-content"
                         />
                         <label className="flex items-center gap-2 text-sm" style={{ cursor: 'pointer' }}>
                           <input

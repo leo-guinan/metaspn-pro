@@ -347,3 +347,142 @@ export const hostApi = {
       }>
     }>(`/api/episodes/${episode_id}/analytics`),
 }
+
+// Network API
+export const networkApi = {
+  // Hub
+  createHub: (data: { repo_name?: string; is_private?: boolean; code?: string; personal_access_token?: string }) =>
+    apiRequest<{ repo_owner: string; repo_name: string; branch: string }>('/api/network/hub/create', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  getHubStatus: () =>
+    apiRequest<{
+      exists: boolean
+      repo_owner?: string
+      repo_name?: string
+      last_sync_at?: string
+      visibility?: string
+    }>('/api/network/hub/status'),
+
+  syncHub: () =>
+    apiRequest<{ status: string }>('/api/network/hub/sync', {
+      method: 'POST',
+    }),
+
+  // Feed
+  createFeed: (data: { repo_name?: string; is_private?: boolean; code?: string; personal_access_token?: string }) =>
+    apiRequest<{ repo_owner: string; repo_name: string; branch: string }>('/api/network/feed/create', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  processFeedItem: (item_id: string) =>
+    apiRequest<{ status: string }>(`/api/network/feed/${item_id}/process`, {
+      method: 'POST',
+    }),
+
+  saveFeedItem: (item_id: string) =>
+    apiRequest<{ status: string }>(`/api/network/feed/${item_id}/save`, {
+      method: 'POST',
+    }),
+
+  // Watch
+  addWatch: (data: {
+    watched_user_id: string
+    watched_repo_owner: string
+    watched_repo_name: string
+    watch_type: 'full' | 'selective' | 'minimal'
+    gates?: Array<{
+      gate_type: string
+      config: Record<string, unknown>
+      is_enabled?: boolean
+      priority?: number
+    }>
+  }) =>
+    apiRequest<{
+      watch_id: string
+      watcher_user_id: string
+      watched_user_id: string
+      watched_repo_owner: string
+      watched_repo_name: string
+      watch_type: string
+      is_active: boolean
+      started_at: string
+      last_sync_at: string | null
+      gates: Array<{
+        gate_type: string
+        config: Record<string, unknown>
+        is_enabled: boolean
+        priority: number
+      }>
+    }>('/api/network/watch', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  removeWatch: (watch_id: string) =>
+    apiRequest<{ status: string }>(`/api/network/watch/${watch_id}`, {
+      method: 'DELETE',
+    }),
+
+  listWatches: () =>
+    apiRequest<
+      Array<{
+        watch_id: string
+        watcher_user_id: string
+        watched_user_id: string
+        watched_repo_owner: string
+        watched_repo_name: string
+        watch_type: string
+        is_active: boolean
+        started_at: string
+        last_sync_at: string | null
+        gates: Array<{
+          gate_type: string
+          config: Record<string, unknown>
+          is_enabled: boolean
+          priority: number
+        }>
+      }>
+    >('/api/network/watching'),
+
+  listWatchers: () =>
+    apiRequest<
+      Array<{
+        watch_id: string
+        watcher_user_id: string
+        watch_type: string
+        started_at: string
+        last_sync_at: string | null
+      }>
+    >('/api/network/watchers'),
+
+  updateWatchGates: (watch_id: string, gates: Array<{
+    gate_type: string
+    config: Record<string, unknown>
+    is_enabled?: boolean
+    priority?: number
+  }>) =>
+    apiRequest<{
+      watch_id: string
+      watcher_user_id: string
+      watched_user_id: string
+      watched_repo_owner: string
+      watched_repo_name: string
+      watch_type: string
+      is_active: boolean
+      started_at: string
+      last_sync_at: string | null
+      gates: Array<{
+        gate_type: string
+        config: Record<string, unknown>
+        is_enabled: boolean
+        priority: number
+      }>
+    }>(`/api/network/watch/${watch_id}/gates`, {
+      method: 'PUT',
+      body: JSON.stringify({ gates }),
+    }),
+}

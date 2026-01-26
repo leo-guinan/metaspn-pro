@@ -20,12 +20,18 @@ export function ensureNoLocalhostInProduction(
 }
 
 // Log environment variable immediately (before any processing)
+// #region agent log
+fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'oauth-urls.ts:23',message:'Module loading start',data:{frontendUrl:process.env.FRONTEND_URL||'NOT SET',nodeEnv:process.env.NODE_ENV||'NOT SET'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+// #endregion
 console.log('='.repeat(60))
 console.log('[OAuth Config] Module Loading...')
 console.log(`  process.env.FRONTEND_URL (raw): ${process.env.FRONTEND_URL || 'NOT SET'}`)
 console.log(`  process.env.NODE_ENV: ${process.env.NODE_ENV || 'NOT SET'}`)
 
 const base = (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/$/, '')
+// #region agent log
+fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'oauth-urls.ts:29',message:'Base URL calculated',data:{base,frontendUrl:process.env.FRONTEND_URL||'NOT SET'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+// #endregion
 
 // Only check in production (don't fail in dev)
 if (process.env.NODE_ENV === 'production') {
@@ -33,12 +39,18 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 // Log the actual FRONTEND_URL being used (helpful for debugging)
+// #region agent log
+fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'oauth-urls.ts:36',message:'Final FRONTEND_URL set',data:{finalBase:base,githubCallback:process.env.GITHUB_CALLBACK_URL||`${base}/api/auth/github/callback`,twitterCallback:process.env.TWITTER_CALLBACK_URL||`${base}/api/auth/twitter/callback`},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+// #endregion
 console.log(`[OAuth Config] FRONTEND_URL (final): ${base}`)
 console.log(`[OAuth Config] GitHub Callback: ${process.env.GITHUB_CALLBACK_URL || `${base}/api/auth/github/callback`}`)
 console.log(`[OAuth Config] Twitter Callback: ${process.env.TWITTER_CALLBACK_URL || `${base}/api/auth/twitter/callback`}`)
 console.log('='.repeat(60))
 
 export const FRONTEND_URL = base
+// #region agent log
+fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'oauth-urls.ts:42',message:'FRONTEND_URL exported',data:{exportedValue:base},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+// #endregion
 
 export function getGitHubCallbackUrl(): string {
   return (
