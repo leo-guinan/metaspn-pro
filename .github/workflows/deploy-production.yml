@@ -1,9 +1,15 @@
 name: Deploy to Production
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
     branches: [main]
   workflow_dispatch:
+  
+# Only deploy if CI workflow completed successfully
+# This ensures docker-build job finished before we try to pull images
 
 permissions:
   contents: read
@@ -14,44 +20,47 @@ jobs:
     name: Deploy to Production
     runs-on: ubuntu-latest
     environment: production
+    # Only run if CI workflow completed successfully (not on failure/cancellation)
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
+        # When triggered by workflow_run, checkout the commit that triggered CI
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
-      - name: Build production images
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./backend/Dockerfile.prod
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository }}/backend:${{ github.sha }}
-            ghcr.io/${{ github.repository }}/backend:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build frontend production image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./frontend/Dockerfile.prod
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository }}/frontend:${{ github.sha }}
-            ghcr.io/${{ github.repository }}/frontend:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Verify CI workflow completed successfully
+        if: github.event_name == 'workflow_run'
+        run: |
+          if [ "${{ github.event.workflow_run.conclusion }}" != "success" ]; then
+            echo "❌ CI workflow did not complete successfully (status: ${{ github.event.workflow_run.conclusion }})"
+            echo "   Skipping deployment"
+            exit 1
+          fi
+          echo "✅ CI workflow completed successfully"
+          echo "   CI workflow run: ${{ github.event.workflow_run.html_url }}"
+          echo "   Commit SHA: ${{ github.event.workflow_run.head_sha }}"
+      
+      - name: Verify CI docker-build job completed
+        if: github.event_name == 'workflow_run'
+        run: |
+          echo "🔍 Verifying CI workflow's docker-build job completed..."
+          # Check CI workflow run details via API
+          CI_RUN_ID="${{ github.event.workflow_run.id }}"
+          echo "   CI workflow run ID: $CI_RUN_ID"
+          echo "   CI workflow conclusion: ${{ github.event.workflow_run.conclusion }}"
+          
+          # Note: workflow_run triggers when workflow completes, but we need to ensure
+          # the docker-build job specifically succeeded. The if condition above checks
+          # for overall success, which should be sufficient if docker-build is required.
+          
+          if [ "${{ github.event.workflow_run.conclusion }}" != "success" ]; then
+            echo "❌ CI workflow did not succeed - docker-build may have failed"
+            exit 1
+          fi
+          
+          echo "✅ CI workflow completed successfully - docker-build job should have finished"
 
       - name: Verify SSH key format
         run: |
@@ -274,13 +283,58 @@ jobs:
               fi
             fi
             
-            # Pull latest app images (backend, frontend)
-            echo "📥 Pulling latest images..."
-            docker pull ghcr.io/${{ github.repository }}/backend:${{ github.sha }}
-            docker pull ghcr.io/${{ github.repository }}/frontend:${{ github.sha }}
+            # Determine which commit SHA to use (from CI workflow or current commit)
+            COMMIT_SHA="${{ github.event.workflow_run.head_sha || github.sha }}"
+            echo "📋 Using commit SHA: $COMMIT_SHA"
+            echo "   CI workflow run: ${{ github.event.workflow_run.html_url || 'N/A (manual trigger)' }}"
             
-            docker tag ghcr.io/${{ github.repository }}/backend:${{ github.sha }} metaspn-backend:latest
-            docker tag ghcr.io/${{ github.repository }}/frontend:${{ github.sha }} metaspn-frontend:latest
+            # Pull latest app images (backend, frontend) - these were built by CI workflow
+            # Add retry logic in case images are still being pushed to registry
+            echo "📥 Pulling images built by CI workflow..."
+            
+            pull_image_with_retry() {
+              local image=$1
+              local max_attempts=5
+              local attempt=1
+              local wait_time=10
+              
+              while [ $attempt -le $max_attempts ]; do
+                echo "   Attempt $attempt/$max_attempts: Pulling $image..."
+                if docker pull "$image" 2>&1; then
+                  echo "   ✅ Successfully pulled $image"
+                  return 0
+                fi
+                
+                if [ $attempt -lt $max_attempts ]; then
+                  echo "   ⚠️  Failed to pull, waiting ${wait_time}s before retry..."
+                  sleep $wait_time
+                  wait_time=$((wait_time + 5))  # Exponential backoff
+                fi
+                attempt=$((attempt + 1))
+              done
+              
+              echo "   ❌ Failed to pull $image after $max_attempts attempts"
+              return 1
+            }
+            
+            if ! pull_image_with_retry "ghcr.io/${{ github.repository }}/backend:$COMMIT_SHA"; then
+              echo "❌ Failed to pull backend image after retries"
+              echo "   Expected: ghcr.io/${{ github.repository }}/backend:$COMMIT_SHA"
+              echo "   💡 CI workflow's docker-build job may not have completed yet, or images failed to push"
+              echo "   Check CI workflow: ${{ github.event.workflow_run.html_url || 'N/A' }}"
+              exit 1
+            fi
+            
+            if ! pull_image_with_retry "ghcr.io/${{ github.repository }}/frontend:$COMMIT_SHA"; then
+              echo "❌ Failed to pull frontend image after retries"
+              echo "   Expected: ghcr.io/${{ github.repository }}/frontend:$COMMIT_SHA"
+              echo "   💡 CI workflow's docker-build job may not have completed yet, or images failed to push"
+              echo "   Check CI workflow: ${{ github.event.workflow_run.html_url || 'N/A' }}"
+              exit 1
+            fi
+
+            docker tag ghcr.io/${{ github.repository }}/backend:$COMMIT_SHA metaspn-backend:latest
+            docker tag ghcr.io/${{ github.repository }}/frontend:$COMMIT_SHA metaspn-frontend:latest
             
             # SSL certs for Nginx must exist in /etc/nginx/ssl (readable by deploy user).
             # /etc/letsencrypt/ is root-only; deploy runs as PRODUCTION_USER (e.g. metaspn).
