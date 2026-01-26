@@ -142,6 +142,7 @@ jobs:
               "scripts/check-backend-startup.sh"
               "scripts/check-frontend-url.sh"
               "scripts/fix-disk-space.sh"
+              "scripts/fix-docker-permissions.sh"
             )
             
             for script in "${SCRIPTS[@]}"; do
@@ -296,7 +297,24 @@ jobs:
             
             # Build Nginx image (not in registry; built on server from nginx/ in repo)
             echo "🔨 Building Nginx image..."
-            docker compose -f docker-compose.prod.yml build nginx
+            # Fix Docker cache directory permission issues
+            # Ensure home directory exists
+            if [ ! -d "$HOME" ]; then
+              echo "⚠️  Home directory doesn't exist, creating it..."
+              mkdir -p "$HOME"
+              chmod 755 "$HOME" 2>/dev/null || true
+            fi
+            # Ensure .docker directory exists and is writable
+            mkdir -p "$HOME/.docker" 2>/dev/null || {
+              echo "⚠️  Cannot create $HOME/.docker, using alternative location..."
+              export DOCKER_CONFIG=/tmp/.docker-$(whoami)
+              mkdir -p "$DOCKER_CONFIG"
+            }
+            # Build Nginx image (disable BuildKit if it causes permission issues)
+            DOCKER_BUILDKIT=0 docker compose -f docker-compose.prod.yml build nginx || {
+              echo "⚠️  Build with BuildKit disabled failed, trying with cache disabled..."
+              DOCKER_BUILDKIT=0 docker compose -f docker-compose.prod.yml build --no-cache nginx
+            }
             
             # Recreate all containers with new images. Do NOT use 'down' – it would tear down
             # Nginx too; if Nginx then failed to start, the site would be broken.
