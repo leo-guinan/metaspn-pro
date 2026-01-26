@@ -21,6 +21,8 @@ FROM base AS production
 
 # Copy backend source code (no build step needed - tsx runs TypeScript directly)
 COPY backend/ ./backend/
+# Copy database migrations (needed for db:migrate script)
+COPY database/ ./database/
 
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs && \
@@ -43,6 +45,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3001/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
 # Start production server using tsx (runs TypeScript directly)
-# Set USE_MASTRA=false to disable Mastra features
-ENV USE_MASTRA=false
+# Mastra is enabled by default (set USE_MASTRA=false to disable)
 CMD ["pnpm", "run", "start:simple"]

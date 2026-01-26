@@ -349,6 +349,13 @@ jobs:
               exit 1
             fi
             
+            # Run database migrations BEFORE starting containers
+            echo "🔄 Running database migrations..."
+            docker compose -f docker-compose.prod.yml --env-file "$ENV_FILE" run --rm backend pnpm run db:migrate || {
+              echo "⚠️  Migration failed, but continuing deployment..."
+              echo "   Check logs above for details"
+            }
+            
             # Build Nginx image (not in registry; built on server from nginx/ in repo)
             echo "🔨 Building Nginx image..."
             # Fix Docker cache directory permission issues

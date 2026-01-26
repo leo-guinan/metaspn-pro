@@ -24,8 +24,6 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       NODE_ENV: production
-      # Disable Mastra for simple build (OAuth routes will work, Mastra features disabled)
-      USE_MASTRA: false
       # Mastra server port configuration
       PORT: 3001
       JWT_SECRET: ${JWT_SECRET}
