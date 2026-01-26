@@ -6,14 +6,15 @@ set -e
 
 echo "🔧 Fixing Nginx setup..."
 
-# 1. Copy SSL certificates to Nginx location
+# 1. Copy SSL certificates to Nginx location (run as root – letsencrypt is root-only)
 echo "📋 Copying SSL certificates..."
 mkdir -p /etc/nginx/ssl
 if [ -f /etc/letsencrypt/live/pro.metaspn.network/fullchain.pem ]; then
     cp /etc/letsencrypt/live/pro.metaspn.network/fullchain.pem /etc/nginx/ssl/
     cp /etc/letsencrypt/live/pro.metaspn.network/privkey.pem /etc/nginx/ssl/
-    chmod 600 /etc/nginx/ssl/*
-    echo "✅ SSL certificates copied"
+    chmod 640 /etc/nginx/ssl/fullchain.pem /etc/nginx/ssl/privkey.pem
+    chown root:metaspn /etc/nginx/ssl/fullchain.pem /etc/nginx/ssl/privkey.pem 2>/dev/null || true
+    echo "✅ SSL certificates copied (readable by metaspn for deploy)"
 else
     echo "❌ SSL certificates not found at /etc/letsencrypt/live/pro.metaspn.network/"
     echo "   Run: sudo certbot certonly --standalone -d pro.metaspn.network"

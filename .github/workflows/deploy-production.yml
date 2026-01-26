@@ -227,17 +227,16 @@ jobs:
             docker tag ghcr.io/${{ github.repository }}/backend:${{ github.sha }} metaspn-backend:latest
             docker tag ghcr.io/${{ github.repository }}/frontend:${{ github.sha }} metaspn-frontend:latest
             
-            # SSL certs for Nginx (must exist before we build/run nginx)
-            if [ -f /etc/letsencrypt/live/pro.metaspn.network/fullchain.pem ]; then
-              echo "📋 Preparing SSL certificates for Nginx..."
-              mkdir -p /etc/nginx/ssl
-              cp /etc/letsencrypt/live/pro.metaspn.network/fullchain.pem /etc/nginx/ssl/
-              cp /etc/letsencrypt/live/pro.metaspn.network/privkey.pem /etc/nginx/ssl/
-              chmod 600 /etc/nginx/ssl/*
-              echo "✅ SSL certificates ready"
+            # SSL certs for Nginx must exist in /etc/nginx/ssl (readable by deploy user).
+            # /etc/letsencrypt/ is root-only; deploy runs as PRODUCTION_USER (e.g. metaspn).
+            # Copy certs there as root: sudo bash /opt/metaspn/scripts/fix-nginx.sh
+            if [ -f /etc/nginx/ssl/fullchain.pem ] && [ -f /etc/nginx/ssl/privkey.pem ]; then
+              echo "✅ SSL certificates found in /etc/nginx/ssl"
             else
-              echo "❌ SSL certificates not found at /etc/letsencrypt/live/pro.metaspn.network/"
-              echo "   Run: sudo certbot certonly --standalone -d pro.metaspn.network"
+              echo "❌ SSL certificates not found in /etc/nginx/ssl"
+              echo "   Deploy cannot read /etc/letsencrypt (root-only). As root, run:"
+              echo "   sudo bash /opt/metaspn/scripts/fix-nginx.sh"
+              echo "   That copies certs from /etc/letsencrypt to /etc/nginx/ssl and sets permissions."
               exit 1
             fi
             

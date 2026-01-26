@@ -200,16 +200,15 @@ sudo /opt/metaspn/scripts/health-check.sh
 
 **Nginx runs as a Docker Compose service** in `docker-compose.prod.yml`, not on the host. The deploy workflow builds and starts it together with backend, frontend, and worker.
 
-Before the first deploy (or if Nginx fails to start), ensure SSL certificates exist and are copied for Nginx:
+The deploy user (e.g. `metaspn`) cannot read `/etc/letsencrypt` (root-only). Certificates must be copied into `/etc/nginx/ssl` **as root** before the first deploy. Run:
 
 ```bash
-sudo mkdir -p /etc/nginx/ssl
-sudo cp /etc/letsencrypt/live/pro.metaspn.network/fullchain.pem /etc/nginx/ssl/
-sudo cp /etc/letsencrypt/live/pro.metaspn.network/privkey.pem /etc/nginx/ssl/
-sudo chmod 600 /etc/nginx/ssl/*
+sudo bash /opt/metaspn/scripts/fix-nginx.sh
 ```
 
-The deployment pipeline copies these automatically when present. If Nginx does not start after a deploy, run:
+This copies certs from Let's Encrypt to `/etc/nginx/ssl`, sets permissions so the deploy user can read them, and starts Nginx. Re-run after cert renewals if you want Nginx to use updated certs immediately.
+
+If Nginx does not start after a deploy, run:
 
 ```bash
 sudo bash /opt/metaspn/scripts/fix-nginx.sh
