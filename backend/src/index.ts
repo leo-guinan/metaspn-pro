@@ -91,18 +91,12 @@ import {
   updateEpisodeGuest,
 } from './mastra/tools/guest-management-tools.js'
 
-// #region agent log
-fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'index.ts:54',message:'About to import oauth-urls',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-// #endregion
 import {
   FRONTEND_URL,
   getGitHubCallbackUrl,
   getTwitterCallbackUrl,
   getCorsOrigins,
 } from './config/oauth-urls.js'
-// #region agent log
-fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'index.ts:60',message:'oauth-urls imported',data:{frontendUrl:FRONTEND_URL},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-// #endregion
 import { processWebhookEvent, type GitHubPushEvent } from './services/network-processor.js'
 import { createHmac } from 'crypto'
 import {
@@ -176,14 +170,8 @@ app.get('/api/auth/:provider/login', (c) => {
       oauthStore.set(state, { codeVerifier, isLinking: false })
       pruneOAuthStore()
       const callbackUrl = getTwitterCallbackUrl()
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'index.ts:125',message:'Twitter OAuth login - callback URL',data:{frontendUrl:FRONTEND_URL,callbackUrl},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-      // #endregion
       console.log(`[OAuth Login] Twitter - FRONTEND_URL: ${FRONTEND_URL}, Callback URL: ${callbackUrl}`)
       const url = getTwitterOAuthAuthUrl(state, codeChallenge)
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'index.ts:128',message:'Twitter OAuth redirect URL',data:{redirectUrl:url},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-      // #endregion
       console.log(`[OAuth Login] Twitter - Redirecting to OAuth provider: ${url}`)
       return c.redirect(url, 302)
     } else {
@@ -191,14 +179,8 @@ app.get('/api/auth/:provider/login', (c) => {
       oauthStore.set(state, { isLinking: false })
       pruneOAuthStore()
       const callbackUrl = getGitHubCallbackUrl()
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'index.ts:132',message:'GitHub OAuth login - callback URL',data:{frontendUrl:FRONTEND_URL,callbackUrl},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-      // #endregion
       console.log(`[OAuth Login] GitHub - FRONTEND_URL: ${FRONTEND_URL}, Callback URL: ${callbackUrl}`)
       const url = getOAuthAuthUrl(state, callbackUrl)
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'index.ts:135',message:'GitHub OAuth redirect URL',data:{redirectUrl:url},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-      // #endregion
       console.log(`[OAuth Login] GitHub - Redirecting to OAuth provider: ${url}`)
       return c.redirect(url, 302)
     }
@@ -216,10 +198,6 @@ app.get('/api/auth/:provider/callback', async (c) => {
     const state = c.req.query('state')
     const error = c.req.query('error')
 
-    // Log redirect URL for debugging
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'index.ts:146',message:'OAuth callback entry',data:{provider,frontendUrl:FRONTEND_URL,frontendUrlEnv:process.env.FRONTEND_URL||'NOT SET'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-    // #endregion
     console.log(`[OAuth Callback] Provider: ${provider}, FRONTEND_URL: ${FRONTEND_URL}, env.FRONTEND_URL: ${process.env.FRONTEND_URL}`)
 
     if (error) {
@@ -1801,10 +1779,6 @@ app.get('/api/episodes/:episode_id/analytics', requireAuth, async (c) => {
 
 // Initialize and start server
 async function startServer() {
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'index.ts:1807',message:'Starting server initialization',data:{nodeEnv:process.env.NODE_ENV||'not set',frontendUrlEnv:process.env.FRONTEND_URL||'NOT SET'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-  // #endregion
-  
   // Load Mastra modules first (if enabled)
   await loadMastraModules()
 

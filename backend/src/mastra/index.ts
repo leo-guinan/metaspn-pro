@@ -104,14 +104,8 @@ export * from './workflows'
 // NOTE: This creates a circular dependency (index.ts imports mastra, mastra/index.ts imports index.ts)
 // but it's necessary. Modern bundlers (Rollup) handle circular dependencies by including both files.
 // The import is at the end after all exports to minimize initialization order issues.
-// #region agent log
-fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'mastra/index.ts:106',message:'About to side-effect import index.ts',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-// #endregion
 
 // Side-effect import - ensures src/index.ts is included in the build
 // This will cause the bundler to include all code from index.ts (routes, OAuth handlers, etc.)
 // The circular dependency is handled by the bundler including both files in the output
 import '../index.js'
-// #region agent log
-fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'mastra/index.ts:112',message:'Side-effect import of index.ts completed',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-// #endregion
