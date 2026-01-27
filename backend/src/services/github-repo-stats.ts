@@ -5,12 +5,14 @@ export interface SourceStats {
   file_count: number
   event_count: number
   recent: any[]
+  files: string[]  // List of file names in this source
 }
 
 export interface ArtifactStats {
   file_count: number
   item_count: number
   recent: any[]
+  files: string[]  // List of file names in this artifact type
 }
 
 export interface RepoStats {
@@ -131,10 +133,12 @@ export async function getRepoStats(userId: string): Promise<RepoStats> {
             let totalEvents = 0
             let allRecent: any[] = []
             let fileCount = 0
+            const fileNames: string[] = []
             
             for (const file of sourceFiles) {
               if (file.type === 'file' && file.name.endsWith('.jsonl')) {
                 fileCount++
+                fileNames.push(file.name)
                 const fileContent = await getFileContent(octokit, repo_owner, repo_name, file.path, branch)
                 if (fileContent) {
                   const { count, recent } = parseJsonlFile(fileContent.content)
@@ -155,6 +159,7 @@ export async function getRepoStats(userId: string): Promise<RepoStats> {
               file_count: fileCount,
               event_count: totalEvents,
               recent: allRecent.slice(0, 5),
+              files: fileNames,
             }
             stats.total_events += totalEvents
           }
@@ -174,10 +179,12 @@ export async function getRepoStats(userId: string): Promise<RepoStats> {
             let totalItems = 0
             let allRecent: any[] = []
             let fileCount = 0
+            const fileNames: string[] = []
             
             for (const file of artifactFiles) {
               if (file.type === 'file' && file.name.endsWith('.jsonl')) {
                 fileCount++
+                fileNames.push(file.name)
                 const fileContent = await getFileContent(octokit, repo_owner, repo_name, file.path, branch)
                 if (fileContent) {
                   const { count, recent } = parseJsonlFile(fileContent.content)
@@ -198,6 +205,7 @@ export async function getRepoStats(userId: string): Promise<RepoStats> {
               file_count: fileCount,
               item_count: totalItems,
               recent: allRecent.slice(0, 5),
+              files: fileNames,
             }
             stats.total_artifacts += totalItems
           }

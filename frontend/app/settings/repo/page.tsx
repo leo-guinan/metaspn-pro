@@ -10,12 +10,14 @@ interface SourceStats {
   file_count: number
   event_count: number
   recent: any[]
+  files: string[]
 }
 
 interface ArtifactStats {
   file_count: number
   item_count: number
   recent: any[]
+  files: string[]
 }
 
 interface RepoStats {
@@ -53,25 +55,223 @@ function formatArtifactName(name: string): string {
 }
 
 function formatTimestamp(timestamp: string): string {
-  const date = new Date(timestamp)
-  return date.toLocaleString()
+  try {
+    const date = new Date(timestamp)
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    })
+  } catch {
+    return timestamp
+  }
 }
 
-function getEventPreview(event: any): string {
-  // Try to get a meaningful preview based on event type
-  if (event.podcast?.title) {
-    return `${event.podcast.title}${event.episode?.title ? ` - ${event.episode.title}` : ''}`
+function formatRelativeTime(timestamp: string): string {
+  try {
+    const date = new Date(timestamp)
+    const now = new Date()
+    const diffMs = now.getTime() - date.getTime()
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+    
+    if (diffDays === 0) return 'Today'
+    if (diffDays === 1) return 'Yesterday'
+    if (diffDays < 7) return `${diffDays} days ago`
+    if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`
+    if (diffDays < 365) return `${Math.floor(diffDays / 30)} months ago`
+    return `${Math.floor(diffDays / 365)} years ago`
+  } catch {
+    return ''
   }
-  if (event.tweet?.text) {
-    return event.tweet.text.substring(0, 100) + (event.tweet.text.length > 100 ? '...' : '')
+}
+
+// Icon components
+function HeartIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+    </svg>
+  )
+}
+
+function RetweetIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/>
+    </svg>
+  )
+}
+
+// Tweet Card Component
+function TweetCard({ tweet }: { tweet: any }) {
+  const text = tweet.tweet?.text || tweet.full_text || tweet.text || ''
+  const likes = tweet.metrics?.likes ?? tweet.favorite_count ?? 0
+  const retweets = tweet.metrics?.retweets ?? tweet.retweet_count ?? 0
+  const timestamp = tweet.tweet?.created_at || tweet.timestamp || tweet.created_at
+  const url = tweet.tweet?.url || (tweet.id ? `https://twitter.com/i/web/status/${tweet.id}` : null)
+  const tweetType = tweet.tweet?.type || 'original'
+  
+  return (
+    <div className="p-3 rounded-lg" style={{ background: 'var(--bg-darker)', border: '1px solid var(--border)' }}>
+      {tweetType === 'reply' && (
+        <div className="text-xs mb-1" style={{ color: 'var(--fg-subtle)' }}>
+          Replying to a tweet
+        </div>
+      )}
+      <p className="text-sm mb-2" style={{ color: 'var(--fg)', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>
+        {text}
+      </p>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--fg-subtle)' }}>
+            <HeartIcon /> {likes.toLocaleString()}
+          </span>
+          <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--fg-subtle)' }}>
+            <RetweetIcon /> {retweets.toLocaleString()}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          {timestamp && (
+            <span className="text-xs" style={{ color: 'var(--fg-subtle)' }} title={formatTimestamp(timestamp)}>
+              {formatRelativeTime(timestamp)}
+            </span>
+          )}
+          {url && (
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs"
+              style={{ color: 'var(--gold)' }}
+            >
+              View
+            </a>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Source Event Card Component
+function SourceEventCard({ event, sourceType }: { event: any; sourceType: string }) {
+  const timestamp = event.timestamp
+  
+  // Podcast listening event
+  if (sourceType === 'podcasts' || event.podcast) {
+    const podcastTitle = event.podcast?.title || 'Unknown Podcast'
+    const episodeTitle = event.episode?.title || 'Unknown Episode'
+    const eventType = event.event_type || 'listen'
+    const completion = event.listening?.completion_percentage
+    
+    return (
+      <div className="p-3 rounded-lg" style={{ background: 'var(--bg-darker)', border: '1px solid var(--border)' }}>
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-medium truncate" style={{ color: 'var(--fg)' }}>
+              {episodeTitle}
+            </div>
+            <div className="text-xs mt-1" style={{ color: 'var(--fg-subtle)' }}>
+              {podcastTitle}
+            </div>
+          </div>
+          <div className="text-right flex-shrink-0">
+            <div className="text-xs capitalize" style={{ color: eventType === 'complete' ? 'var(--gold)' : 'var(--fg-subtle)' }}>
+              {eventType}
+            </div>
+            {completion !== undefined && (
+              <div className="text-xs mt-1" style={{ color: 'var(--fg-subtle)' }}>
+                {Math.round(completion)}%
+              </div>
+            )}
+          </div>
+        </div>
+        {timestamp && (
+          <div className="text-xs mt-2" style={{ color: 'var(--fg-subtle)' }} title={formatTimestamp(timestamp)}>
+            {formatRelativeTime(timestamp)}
+          </div>
+        )}
+      </div>
+    )
   }
-  if (event.title) {
-    return event.title
+  
+  // Twitter reading event
+  if (sourceType === 'twitter' && event.tweet) {
+    const text = event.tweet.text || ''
+    return (
+      <div className="p-3 rounded-lg" style={{ background: 'var(--bg-darker)', border: '1px solid var(--border)' }}>
+        <p className="text-sm" style={{ color: 'var(--fg-dim)' }}>
+          {text.length > 120 ? text.substring(0, 120) + '...' : text}
+        </p>
+        {timestamp && (
+          <div className="text-xs mt-2" style={{ color: 'var(--fg-subtle)' }} title={formatTimestamp(timestamp)}>
+            {formatRelativeTime(timestamp)}
+          </div>
+        )}
+      </div>
+    )
   }
-  if (event.text) {
-    return event.text.substring(0, 100) + (event.text.length > 100 ? '...' : '')
+  
+  // Generic event
+  return (
+    <div className="p-3 rounded-lg" style={{ background: 'var(--bg-darker)', border: '1px solid var(--border)' }}>
+      <p className="text-sm" style={{ color: 'var(--fg-dim)', wordBreak: 'break-word' }}>
+        {event.title || event.text || JSON.stringify(event).substring(0, 150)}...
+      </p>
+      {timestamp && (
+        <div className="text-xs mt-2" style={{ color: 'var(--fg-subtle)' }} title={formatTimestamp(timestamp)}>
+          {formatRelativeTime(timestamp)}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Artifact Card Component - determines which card to use based on type
+function ArtifactCard({ item, artifactType }: { item: any; artifactType: string }) {
+  if (artifactType === 'twitter') {
+    return <TweetCard tweet={item} />
   }
-  return JSON.stringify(event).substring(0, 80) + '...'
+  
+  // Blog post
+  if (artifactType === 'blog') {
+    const title = item.title || item.post?.title || 'Untitled Post'
+    const excerpt = item.excerpt || item.post?.excerpt || ''
+    const timestamp = item.timestamp || item.created_at
+    
+    return (
+      <div className="p-3 rounded-lg" style={{ background: 'var(--bg-darker)', border: '1px solid var(--border)' }}>
+        <div className="text-sm font-medium" style={{ color: 'var(--fg)' }}>{title}</div>
+        {excerpt && (
+          <p className="text-xs mt-1" style={{ color: 'var(--fg-dim)' }}>
+            {excerpt.length > 150 ? excerpt.substring(0, 150) + '...' : excerpt}
+          </p>
+        )}
+        {timestamp && (
+          <div className="text-xs mt-2" style={{ color: 'var(--fg-subtle)' }}>
+            {formatRelativeTime(timestamp)}
+          </div>
+        )}
+      </div>
+    )
+  }
+  
+  // Generic artifact
+  const title = item.title || item.name || 'Untitled'
+  const timestamp = item.timestamp || item.created_at
+  
+  return (
+    <div className="p-3 rounded-lg" style={{ background: 'var(--bg-darker)', border: '1px solid var(--border)' }}>
+      <div className="text-sm" style={{ color: 'var(--fg)' }}>{title}</div>
+      {timestamp && (
+        <div className="text-xs mt-2" style={{ color: 'var(--fg-subtle)' }}>
+          {formatRelativeTime(timestamp)}
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function RepoStatsPage() {
@@ -208,11 +408,11 @@ export default function RepoStatsPage() {
             <section className="mb-8">
               <h2 className="mb-4">Sources</h2>
               <p className="text-sm mb-4" style={{ color: 'var(--fg-dim)' }}>
-                Raw event logs for content consumption (append-only).
+                Raw event logs for content consumption (append-only). These files are populated as you log listening/reading activity.
               </p>
               {Object.keys(stats.sources).length === 0 ? (
                 <div className="question-card">
-                  <p style={{ color: 'var(--fg-subtle)' }}>No source events recorded yet.</p>
+                  <p style={{ color: 'var(--fg-subtle)' }}>No source directories found.</p>
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -229,7 +429,10 @@ export default function RepoStatsPage() {
                           </span>
                         </div>
                         <div className="flex items-center gap-4">
-                          <span className="text-2xl font-bold" style={{ color: 'var(--gold)' }}>
+                          <span 
+                            className="text-2xl font-bold" 
+                            style={{ color: source.event_count > 0 ? 'var(--gold)' : 'var(--fg-subtle)' }}
+                          >
                             {source.event_count.toLocaleString()}
                           </span>
                           <span style={{ color: 'var(--fg-subtle)' }}>
@@ -237,29 +440,44 @@ export default function RepoStatsPage() {
                           </span>
                         </div>
                       </div>
-                      {expandedSections[`source-${sourceType}`] && source.recent.length > 0 && (
+                      {expandedSections[`source-${sourceType}`] && (
                         <div className="mt-4 pt-4" style={{ borderTop: '1px solid var(--border)' }}>
-                          <div className="text-sm font-medium mb-2" style={{ color: 'var(--fg-dim)' }}>Recent Events</div>
-                          <div className="space-y-2">
-                            {source.recent.map((event, idx) => (
-                              <div
-                                key={idx}
-                                className="text-sm p-2 rounded"
-                                style={{ background: 'var(--bg-darker)', color: 'var(--fg-subtle)' }}
-                              >
-                                <div className="flex justify-between items-start gap-2">
-                                  <span className="flex-1" style={{ wordBreak: 'break-word' }}>
-                                    {getEventPreview(event)}
-                                  </span>
-                                  {event.timestamp && (
-                                    <span className="text-xs whitespace-nowrap" style={{ color: 'var(--fg-subtle)' }}>
-                                      {formatTimestamp(event.timestamp)}
-                                    </span>
-                                  )}
-                                </div>
+                          {/* File info */}
+                          {source.files?.length > 0 && (
+                            <div className="mb-4">
+                              <div className="text-xs mb-2" style={{ color: 'var(--fg-subtle)' }}>
+                                Files:
                               </div>
-                            ))}
-                          </div>
+                              <div className="flex flex-wrap gap-2">
+                                {source.files.map((file) => (
+                                  <span
+                                    key={file}
+                                    className="text-xs font-mono px-2 py-1 rounded"
+                                    style={{ background: 'var(--bg-darker)', color: 'var(--fg-dim)' }}
+                                  >
+                                    {file}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {/* Recent events */}
+                          {source.recent.length > 0 ? (
+                            <>
+                              <div className="text-sm font-medium mb-3" style={{ color: 'var(--fg-dim)' }}>
+                                Recent Events
+                              </div>
+                              <div className="space-y-3">
+                                {source.recent.map((event, idx) => (
+                                  <SourceEventCard key={idx} event={event} sourceType={sourceType} />
+                                ))}
+                              </div>
+                            </>
+                          ) : (
+                            <div className="text-sm" style={{ color: 'var(--fg-subtle)' }}>
+                              No events recorded yet in these files.
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -272,7 +490,7 @@ export default function RepoStatsPage() {
             <section className="mb-8">
               <h2 className="mb-4">Artifacts</h2>
               <p className="text-sm mb-4" style={{ color: 'var(--fg-dim)' }}>
-                Content you created (your output).
+                Content you created (your output). Synced from your connected accounts.
               </p>
               {Object.keys(stats.artifacts).length === 0 ? (
                 <div className="question-card">
@@ -293,7 +511,10 @@ export default function RepoStatsPage() {
                           </span>
                         </div>
                         <div className="flex items-center gap-4">
-                          <span className="text-2xl font-bold" style={{ color: 'var(--gold)' }}>
+                          <span 
+                            className="text-2xl font-bold" 
+                            style={{ color: artifact.item_count > 0 ? 'var(--gold)' : 'var(--fg-subtle)' }}
+                          >
                             {artifact.item_count.toLocaleString()}
                           </span>
                           <span style={{ color: 'var(--fg-subtle)' }}>
@@ -301,29 +522,44 @@ export default function RepoStatsPage() {
                           </span>
                         </div>
                       </div>
-                      {expandedSections[`artifact-${artifactType}`] && artifact.recent.length > 0 && (
+                      {expandedSections[`artifact-${artifactType}`] && (
                         <div className="mt-4 pt-4" style={{ borderTop: '1px solid var(--border)' }}>
-                          <div className="text-sm font-medium mb-2" style={{ color: 'var(--fg-dim)' }}>Recent Items</div>
-                          <div className="space-y-2">
-                            {artifact.recent.map((item, idx) => (
-                              <div
-                                key={idx}
-                                className="text-sm p-2 rounded"
-                                style={{ background: 'var(--bg-darker)', color: 'var(--fg-subtle)' }}
-                              >
-                                <div className="flex justify-between items-start gap-2">
-                                  <span className="flex-1" style={{ wordBreak: 'break-word' }}>
-                                    {getEventPreview(item)}
-                                  </span>
-                                  {item.timestamp && (
-                                    <span className="text-xs whitespace-nowrap" style={{ color: 'var(--fg-subtle)' }}>
-                                      {formatTimestamp(item.timestamp)}
-                                    </span>
-                                  )}
-                                </div>
+                          {/* File info */}
+                          {artifact.files?.length > 0 && (
+                            <div className="mb-4">
+                              <div className="text-xs mb-2" style={{ color: 'var(--fg-subtle)' }}>
+                                Files:
                               </div>
-                            ))}
-                          </div>
+                              <div className="flex flex-wrap gap-2">
+                                {artifact.files.map((file) => (
+                                  <span
+                                    key={file}
+                                    className="text-xs font-mono px-2 py-1 rounded"
+                                    style={{ background: 'var(--bg-darker)', color: 'var(--fg-dim)' }}
+                                  >
+                                    {file}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {/* Recent items */}
+                          {artifact.recent.length > 0 ? (
+                            <>
+                              <div className="text-sm font-medium mb-3" style={{ color: 'var(--fg-dim)' }}>
+                                Recent {formatArtifactName(artifactType)}
+                              </div>
+                              <div className="space-y-3">
+                                {artifact.recent.map((item, idx) => (
+                                  <ArtifactCard key={idx} item={item} artifactType={artifactType} />
+                                ))}
+                              </div>
+                            </>
+                          ) : (
+                            <div className="text-sm" style={{ color: 'var(--fg-subtle)' }}>
+                              No items recorded yet in these files.
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>

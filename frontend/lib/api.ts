@@ -133,8 +133,8 @@ export const githubIntegrationsApi = {
       repo: { owner: string; name: string; branch: string } | null
       schema_version: string | null
       last_sync: string | null
-      sources: Record<string, { file_count: number; event_count: number; recent: any[] }>
-      artifacts: Record<string, { file_count: number; item_count: number; recent: any[] }>
+      sources: Record<string, { file_count: number; event_count: number; recent: any[]; files: string[] }>
+      artifacts: Record<string, { file_count: number; item_count: number; recent: any[]; files: string[] }>
       reports: string[]
       preferences: string[]
       total_events: number
