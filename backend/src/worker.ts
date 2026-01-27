@@ -7,6 +7,7 @@ import {
 } from './mastra/workflows/index.js'
 import { pool } from './db/index.js'
 import { pushToGitHubForUser } from './services/github-push.js'
+import { enhanceAllUserRepos } from './services/repo-enhancer.js'
 
 // Initialize database connection
 async function initializeDatabase() {
@@ -166,6 +167,19 @@ async function startWorker() {
     // TODO: Implement weekly digest generation
   })
 
+  // Repo enhancement: Classify artifacts with game signatures
+  // Configurable via REPO_ENHANCEMENT_CRON (default every 30 minutes)
+  const repoEnhancementCron = process.env.REPO_ENHANCEMENT_CRON?.trim() || '*/30 * * * *'
+  cron.schedule(repoEnhancementCron, async () => {
+    console.log('📅 Running scheduled: Repo Enhancement (game classification)')
+    try {
+      const stats = await enhanceAllUserRepos()
+      console.log(`📊 Repo enhancement complete: ${stats.totalRepos} repos processed, ${stats.totalEnhanced} artifacts enhanced`)
+    } catch (e: any) {
+      console.error('❌ Repo enhancement job error:', e.message)
+    }
+  })
+
   console.log('✅ Worker started successfully')
   console.log('📋 Scheduled jobs:')
   console.log('   - Transcript Discovery: Daily at 2 AM UTC')
@@ -177,6 +191,7 @@ async function startWorker() {
   console.log('   - Hub Sync: Daily at 3 AM UTC')
   console.log('   - Feed Digest (Daily): Daily at 9 AM UTC')
   console.log('   - Feed Digest (Weekly): Monday at 10 AM UTC')
+  console.log(`   - Repo Enhancement: ${repoEnhancementCron}`)
 
   // Keep the process alive
   process.on('SIGTERM', () => {

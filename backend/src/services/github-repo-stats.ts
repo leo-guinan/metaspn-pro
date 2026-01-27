@@ -1,6 +1,23 @@
 import { pool } from '../db/index.js'
 import { createOctokit, decryptToken, getFileContent, listDirectory } from './github.js'
 
+export interface GameSignature {
+  G1: number
+  G2: number
+  G3: number
+  G4: number
+  G5: number
+  G6: number
+}
+
+export interface GameStats {
+  primary_game: string | null
+  primary_percentage: number
+  classified_count: number
+  total_count: number
+  signature: GameSignature
+}
+
 export interface SourceStats {
   file_count: number
   event_count: number
@@ -13,6 +30,7 @@ export interface ArtifactStats {
   item_count: number
   recent: any[]
   files: string[]  // List of file names in this artifact type
+  game_stats: GameStats  // Aggregated game classification stats
 }
 
 export interface RepoStats {
@@ -29,27 +47,91 @@ export interface RepoStats {
 }
 
 /**
- * Parse a JSONL file and return stats
+ * Check if a game signature has been classified (not all zeros)
  */
-function parseJsonlFile(content: string, maxRecent: number = 5): { count: number; recent: any[] } {
+function isClassified(sig: GameSignature | undefined): boolean {
+  if (!sig) return false
+  return Object.values(sig).some((v) => v > 0)
+}
+
+/**
+ * Get primary game from a game signature
+ */
+function getPrimaryGame(sig: GameSignature): { game: string; percentage: number } {
+  const entries = Object.entries(sig) as [string, number][]
+  const sorted = entries.sort((a, b) => b[1] - a[1])
+  const total = entries.reduce((sum, [, val]) => sum + val, 0)
+  
+  if (sorted[0][1] === 0 || total === 0) {
+    return { game: '', percentage: 0 }
+  }
+  
+  return {
+    game: sorted[0][0],
+    percentage: Math.round((sorted[0][1] / total) * 100),
+  }
+}
+
+/**
+ * Aggregate game signatures across multiple items
+ */
+function aggregateGameSignatures(items: any[]): GameStats {
+  const aggregateSig: GameSignature = { G1: 0, G2: 0, G3: 0, G4: 0, G5: 0, G6: 0 }
+  let classifiedCount = 0
+  
+  for (const item of items) {
+    const sig = item.analysis?.game_signature as GameSignature | undefined
+    if (sig && isClassified(sig)) {
+      classifiedCount++
+      for (const key of Object.keys(aggregateSig) as (keyof GameSignature)[]) {
+        aggregateSig[key] += sig[key] || 0
+      }
+    }
+  }
+  
+  // Normalize the aggregate signature
+  const total = Object.values(aggregateSig).reduce((sum, val) => sum + val, 0)
+  if (total > 0) {
+    for (const key of Object.keys(aggregateSig) as (keyof GameSignature)[]) {
+      aggregateSig[key] = aggregateSig[key] / total
+    }
+  }
+  
+  const primary = getPrimaryGame(aggregateSig)
+  
+  return {
+    primary_game: primary.game || null,
+    primary_percentage: primary.percentage,
+    classified_count: classifiedCount,
+    total_count: items.length,
+    signature: aggregateSig,
+  }
+}
+
+/**
+ * Parse a JSONL file and return stats including game classification data
+ */
+function parseJsonlFile(content: string, maxRecent: number = 5): { count: number; recent: any[]; allItems: any[] } {
   if (!content.trim()) {
-    return { count: 0, recent: [] }
+    return { count: 0, recent: [], allItems: [] }
   }
   
   const lines = content.trim().split('\n').filter((line) => line.trim())
-  const recent: any[] = []
+  const allItems: any[] = []
   
-  // Get the last N lines as recent entries
-  const recentLines = lines.slice(-maxRecent)
-  for (const line of recentLines) {
+  // Parse all items for game stats aggregation
+  for (const line of lines) {
     try {
-      recent.push(JSON.parse(line))
+      allItems.push(JSON.parse(line))
     } catch {
       // Skip invalid JSON lines
     }
   }
   
-  return { count: lines.length, recent: recent.reverse() }
+  // Get the last N items as recent entries (reversed for newest first)
+  const recent = allItems.slice(-maxRecent).reverse()
+  
+  return { count: lines.length, recent, allItems }
 }
 
 /**
@@ -178,6 +260,7 @@ export async function getRepoStats(userId: string): Promise<RepoStats> {
           if (artifactFiles) {
             let totalItems = 0
             let allRecent: any[] = []
+            let allItemsForGameStats: any[] = []
             let fileCount = 0
             const fileNames: string[] = []
             
@@ -187,9 +270,10 @@ export async function getRepoStats(userId: string): Promise<RepoStats> {
                 fileNames.push(file.name)
                 const fileContent = await getFileContent(octokit, repo_owner, repo_name, file.path, branch)
                 if (fileContent) {
-                  const { count, recent } = parseJsonlFile(fileContent.content)
+                  const { count, recent, allItems } = parseJsonlFile(fileContent.content)
                   totalItems += count
                   allRecent = [...allRecent, ...recent]
+                  allItemsForGameStats = [...allItemsForGameStats, ...allItems]
                 }
               }
             }
@@ -201,11 +285,15 @@ export async function getRepoStats(userId: string): Promise<RepoStats> {
               return bTime - aTime
             })
             
+            // Compute aggregate game stats from all items
+            const gameStats = aggregateGameSignatures(allItemsForGameStats)
+            
             stats.artifacts[artifactType] = {
               file_count: fileCount,
               item_count: totalItems,
               recent: allRecent.slice(0, 5),
               files: fileNames,
+              game_stats: gameStats,
             }
             stats.total_artifacts += totalItems
           }

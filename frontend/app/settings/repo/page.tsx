@@ -6,6 +6,23 @@ import { githubIntegrationsApi } from '@/lib/api'
 import { useAuth } from '@/lib/contexts/AuthContext'
 import AppNav from '@/components/navigation/AppNav'
 
+interface GameSignature {
+  G1: number
+  G2: number
+  G3: number
+  G4: number
+  G5: number
+  G6: number
+}
+
+interface GameStats {
+  primary_game: string | null
+  primary_percentage: number
+  classified_count: number
+  total_count: number
+  signature: GameSignature
+}
+
 interface SourceStats {
   file_count: number
   event_count: number
@@ -18,6 +35,7 @@ interface ArtifactStats {
   item_count: number
   recent: any[]
   files: string[]
+  game_stats?: GameStats
 }
 
 interface RepoStats {
@@ -104,6 +122,121 @@ function RetweetIcon() {
   )
 }
 
+// Game names mapping based on the 6 Games framework
+const GAME_NAMES: Record<string, string> = {
+  G1: 'Identity / Canon',
+  G2: 'Idea / Play Mining',
+  G3: 'Model / Understanding',
+  G4: 'Performance / Coaching',
+  G5: 'Meaning / Sensemaking',
+  G6: 'Network / Coordination',
+}
+
+const GAME_SHORT_NAMES: Record<string, string> = {
+  G1: 'Identity',
+  G2: 'Ideas',
+  G3: 'Models',
+  G4: 'Performance',
+  G5: 'Meaning',
+  G6: 'Network',
+}
+
+const GAME_QUESTIONS: Record<string, string> = {
+  G1: 'Who should people become—and who should they study?',
+  G2: 'What can we extract and apply right now?',
+  G3: 'How does this actually work?',
+  G4: 'How do you get better results?',
+  G5: 'What does this mean for how we live?',
+  G6: 'Who should be connected—and how?',
+}
+
+const GAME_COLORS: Record<string, string> = {
+  G1: '#3b82f6', // blue
+  G2: '#10b981', // emerald
+  G3: '#f59e0b', // amber
+  G4: '#8b5cf6', // violet
+  G5: '#ec4899', // pink
+  G6: '#ef4444', // red
+}
+
+// Game Badge Component - displays primary game and percentage
+function GameBadge({ 
+  gameStats, 
+  size = 'normal',
+  showPercentage = true,
+}: { 
+  gameStats?: GameStats | null
+  size?: 'small' | 'normal'
+  showPercentage?: boolean
+}) {
+  if (!gameStats?.primary_game || gameStats.primary_percentage === 0) {
+    return (
+      <span 
+        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full ${size === 'small' ? 'text-xs' : 'text-sm'}`}
+        style={{ 
+          background: 'var(--bg-darker)', 
+          color: 'var(--fg-subtle)',
+          border: '1px solid var(--border)'
+        }}
+      >
+        <span style={{ fontSize: size === 'small' ? '0.65rem' : '0.75rem' }}>○</span>
+        <span>Not classified</span>
+      </span>
+    )
+  }
+
+  const game = gameStats.primary_game
+  const color = GAME_COLORS[game] || 'var(--gold)'
+  const shortName = GAME_SHORT_NAMES[game] || game
+  const fullName = GAME_NAMES[game] || game
+  const question = GAME_QUESTIONS[game] || ''
+  
+  return (
+    <span 
+      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full ${size === 'small' ? 'text-xs' : 'text-sm'}`}
+      style={{ 
+        background: `${color}15`, 
+        color: color,
+        border: `1px solid ${color}40`
+      }}
+      title={`${fullName}\n${question}${showPercentage ? `\n\n${gameStats.primary_percentage}% confidence` : ''}`}
+    >
+      <span style={{ fontWeight: 600 }}>{game}</span>
+      <span style={{ opacity: 0.85 }}>{shortName}</span>
+      {showPercentage && (
+        <span style={{ opacity: 0.7, marginLeft: '2px' }}>{gameStats.primary_percentage}%</span>
+      )}
+    </span>
+  )
+}
+
+// Item-level game badge - extracts game info from artifact item
+function ItemGameBadge({ item, size = 'small' }: { item: any; size?: 'small' | 'normal' }) {
+  const analysis = item.analysis
+  if (!analysis?.game_signature) {
+    return <GameBadge gameStats={null} size={size} showPercentage={false} />
+  }
+  
+  const sig = analysis.game_signature as GameSignature
+  const entries = Object.entries(sig) as [string, number][]
+  const sorted = entries.sort((a, b) => b[1] - a[1])
+  const total = entries.reduce((sum, [, val]) => sum + val, 0)
+  
+  if (sorted[0][1] === 0 || total === 0) {
+    return <GameBadge gameStats={null} size={size} showPercentage={false} />
+  }
+  
+  const gameStats: GameStats = {
+    primary_game: sorted[0][0],
+    primary_percentage: Math.round((sorted[0][1] / total) * 100),
+    classified_count: 1,
+    total_count: 1,
+    signature: sig,
+  }
+  
+  return <GameBadge gameStats={gameStats} size={size} />
+}
+
 // Tweet Card Component
 function TweetCard({ tweet }: { tweet: any }) {
   const text = tweet.tweet?.text || tweet.full_text || tweet.text || ''
@@ -115,11 +248,16 @@ function TweetCard({ tweet }: { tweet: any }) {
   
   return (
     <div className="p-3 rounded-lg" style={{ background: 'var(--bg-darker)', border: '1px solid var(--border)' }}>
-      {tweetType === 'reply' && (
-        <div className="text-xs mb-1" style={{ color: 'var(--fg-subtle)' }}>
-          Replying to a tweet
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <div className="flex-1">
+          {tweetType === 'reply' && (
+            <div className="text-xs mb-1" style={{ color: 'var(--fg-subtle)' }}>
+              Replying to a tweet
+            </div>
+          )}
         </div>
-      )}
+        <ItemGameBadge item={tweet} size="small" />
+      </div>
       <p className="text-sm mb-2" style={{ color: 'var(--fg)', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>
         {text}
       </p>
@@ -260,8 +398,11 @@ function ArtifactCard({ item, artifactType }: { item: any; artifactType: string 
       <div className="p-3 rounded-lg" style={{ background: 'var(--bg-darker)', border: '1px solid var(--border)' }}>
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-medium" style={{ color: 'var(--fg)' }}>
-              {title}
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <div className="text-sm font-medium" style={{ color: 'var(--fg)' }}>
+                {title}
+              </div>
+              <ItemGameBadge item={item} size="small" />
             </div>
             {description && (
               <p className="text-xs mt-1" style={{ color: 'var(--fg-dim)', lineHeight: '1.4' }}>
@@ -310,7 +451,10 @@ function ArtifactCard({ item, artifactType }: { item: any; artifactType: string 
     
     return (
       <div className="p-3 rounded-lg" style={{ background: 'var(--bg-darker)', border: '1px solid var(--border)' }}>
-        <div className="text-sm font-medium" style={{ color: 'var(--fg)' }}>{title}</div>
+        <div className="flex items-center justify-between gap-2 mb-1">
+          <div className="text-sm font-medium" style={{ color: 'var(--fg)' }}>{title}</div>
+          <ItemGameBadge item={item} size="small" />
+        </div>
         {excerpt && (
           <p className="text-xs mt-1" style={{ color: 'var(--fg-dim)' }}>
             {excerpt.length > 150 ? excerpt.substring(0, 150) + '...' : excerpt}
@@ -338,7 +482,10 @@ function ArtifactCard({ item, artifactType }: { item: any; artifactType: string 
       <div className="p-3 rounded-lg" style={{ background: 'var(--bg-darker)', border: '1px solid var(--border)' }}>
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-medium" style={{ color: 'var(--fg)' }}>{title}</div>
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <div className="text-sm font-medium" style={{ color: 'var(--fg)' }}>{title}</div>
+              <ItemGameBadge item={item} size="small" />
+            </div>
             {description && (
               <p className="text-xs mt-1" style={{ color: 'var(--fg-dim)' }}>
                 {description.length > 100 ? description.substring(0, 100) + '...' : description}
@@ -379,7 +526,10 @@ function ArtifactCard({ item, artifactType }: { item: any; artifactType: string 
   
   return (
     <div className="p-3 rounded-lg" style={{ background: 'var(--bg-darker)', border: '1px solid var(--border)' }}>
-      <div className="text-sm" style={{ color: 'var(--fg)' }}>{title}</div>
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-sm" style={{ color: 'var(--fg)' }}>{title}</div>
+        <ItemGameBadge item={item} size="small" />
+      </div>
       {timestamp && (
         <div className="text-xs mt-2" style={{ color: 'var(--fg-subtle)' }}>
           {formatRelativeTime(timestamp)}
@@ -624,6 +774,9 @@ export default function RepoStatsPage() {
                           <span className="text-sm" style={{ color: 'var(--fg-subtle)' }}>
                             {artifact.file_count} file{artifact.file_count !== 1 ? 's' : ''}
                           </span>
+                          {artifact.game_stats && (
+                            <GameBadge gameStats={artifact.game_stats} size="normal" />
+                          )}
                         </div>
                         <div className="flex items-center gap-4">
                           <span 
@@ -639,6 +792,65 @@ export default function RepoStatsPage() {
                       </div>
                       {expandedSections[`artifact-${artifactType}`] && (
                         <div className="mt-4 pt-4" style={{ borderTop: '1px solid var(--border)' }}>
+                          {/* Classification stats */}
+                          {artifact.game_stats && (
+                            <div className="mb-4 p-3 rounded-lg" style={{ background: 'var(--bg-darker)' }}>
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <span className="text-sm" style={{ color: 'var(--fg-dim)' }}>
+                                    Game Classification
+                                  </span>
+                                  <div className="text-xs mt-1" style={{ color: 'var(--fg-subtle)' }}>
+                                    {artifact.game_stats.classified_count} of {artifact.game_stats.total_count} items classified
+                                  </div>
+                                </div>
+                                {artifact.game_stats.primary_game && (
+                                  <div className="text-right">
+                                    <div className="text-lg font-bold" style={{ color: GAME_COLORS[artifact.game_stats.primary_game] || 'var(--gold)' }}>
+                                      {artifact.game_stats.primary_game}: {GAME_SHORT_NAMES[artifact.game_stats.primary_game] || ''}
+                                    </div>
+                                    <div className="text-xs" style={{ color: 'var(--fg-subtle)' }}>
+                                      {GAME_NAMES[artifact.game_stats.primary_game] || artifact.game_stats.primary_game}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                              {/* Game distribution bar */}
+                              {artifact.game_stats.classified_count > 0 && (
+                                <div className="mt-3">
+                                  <div className="flex h-2 rounded-full overflow-hidden" style={{ background: 'var(--bg)' }}>
+                                    {Object.entries(artifact.game_stats.signature)
+                                      .filter(([, val]) => val > 0.01)
+                                      .sort((a, b) => b[1] - a[1])
+                                      .map(([game, val]) => (
+                                        <div
+                                          key={game}
+                                          style={{
+                                            width: `${val * 100}%`,
+                                            backgroundColor: GAME_COLORS[game] || 'var(--fg-subtle)',
+                                          }}
+                                          title={`${game}: ${Math.round(val * 100)}%`}
+                                        />
+                                      ))}
+                                  </div>
+                                  <div className="flex flex-wrap gap-2 mt-2">
+                                    {Object.entries(artifact.game_stats.signature)
+                                      .filter(([, val]) => val > 0.01)
+                                      .sort((a, b) => b[1] - a[1])
+                                      .map(([game, val]) => (
+                                        <span
+                                          key={game}
+                                          className="text-xs"
+                                          style={{ color: GAME_COLORS[game] || 'var(--fg-subtle)' }}
+                                        >
+                                          {game}: {Math.round(val * 100)}%
+                                        </span>
+                                      ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
                           {/* File info */}
                           {artifact.files?.length > 0 && (
                             <div className="mb-4">
