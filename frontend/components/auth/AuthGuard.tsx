@@ -20,13 +20,23 @@ export function AuthGuard({ children }: AuthGuardProps) {
   const isPublicRoute = publicRoutes.some((route) => pathname?.startsWith(route))
 
   useEffect(() => {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthGuard.tsx:22',message:'AuthGuard useEffect triggered',data:{loading,isPublicRoute,hasUser:!!user,pathname},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
+    
     // Don't redirect if we're still loading or on a public route
     if (loading || isPublicRoute) {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthGuard.tsx:26',message:'AuthGuard skipping redirect',data:{reason:loading?'loading':'publicRoute'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
       return
     }
 
     // Redirect to login if not authenticated
     if (!user) {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthGuard.tsx:31',message:'AuthGuard redirecting to login',data:{pathname},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
       router.push('/auth/login')
     }
   }, [user, loading, router, pathname, isPublicRoute])

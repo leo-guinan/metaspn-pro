@@ -40,19 +40,46 @@ export default function IntegrationsPage() {
   const [usePat, setUsePat] = useState(false)
   const [oauthCode, setOauthCode] = useState<string | null>(null)
 
+  // #region agent log
+  useEffect(() => {
+    const pathname = typeof window !== 'undefined' ? window.location.pathname : ''
+    const fullUrl = typeof window !== 'undefined' ? window.location.href : ''
+    fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'integrations/page.tsx:22',message:'IntegrationsPage mounted',data:{pathname,fullUrl,hasUser:!!user,userId:user?.user_id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+  }, []);
+  // #endregion
+
   useEffect(() => {
     const github = searchParams.get('github')
     const code = searchParams.get('code')
     const err = searchParams.get('error')
+    const pathname = typeof window !== 'undefined' ? window.location.pathname : ''
+    const fullUrl = typeof window !== 'undefined' ? window.location.href : ''
+    
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'integrations/page.tsx:43',message:'Query params useEffect triggered',data:{github,code,err,pathname,fullUrl,hasUser:!!user,userId:user?.user_id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+    // #endregion
+    
     if (github === 'complete' && code) {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'integrations/page.tsx:50',message:'GitHub complete detected, setting oauthCode',data:{code},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+      // #endregion
       setOauthCode(code)
       setMode('choose')
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'integrations/page.tsx:54',message:'About to call router.replace',data:{targetPath:'/settings/integrations'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+      // #endregion
       router.replace('/settings/integrations', { scroll: false })
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'integrations/page.tsx:56',message:'router.replace called',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+      // #endregion
     } else if (github === 'error' && err) {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'integrations/page.tsx:58',message:'GitHub error detected',data:{err},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+      // #endregion
       setError(decodeURIComponent(err))
       router.replace('/settings/integrations', { scroll: false })
     }
-  }, [searchParams, router])
+  }, [searchParams, router, user])
 
   useEffect(() => {
     if (user) {
@@ -108,8 +135,20 @@ export default function IntegrationsPage() {
   }
 
   function startOAuth() {
-    if (!user) return
-    window.location.href = githubIntegrationsApi.authUrl(user.user_id)
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'integrations/page.tsx:110',message:'startOAuth called',data:{hasUser:!!user,userId:user?.user_id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+    // #endregion
+    if (!user) {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'integrations/page.tsx:112',message:'startOAuth aborted - no user',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+      // #endregion
+      return
+    }
+    const authUrl = githubIntegrationsApi.authUrl(user.user_id)
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'integrations/page.tsx:116',message:'Redirecting to GitHub OAuth',data:{authUrl,currentPath:typeof window !== 'undefined' ? window.location.href : ''},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+    // #endregion
+    window.location.href = authUrl
   }
 
   async function handleConnect() {

@@ -12,7 +12,15 @@ export default function Home() {
 
   // Redirect to login if not authenticated
   useEffect(() => {
+    const pathname = typeof window !== 'undefined' ? window.location.pathname : ''
+    const fullUrl = typeof window !== 'undefined' ? window.location.href : ''
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'page.tsx:14',message:'Root page useEffect triggered',data:{loading,hasUser:!!user,pathname,fullUrl},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
     if (!loading && !user) {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'page.tsx:17',message:'Root page redirecting to login',data:{pathname},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
       router.push('/auth/login')
     }
   }, [user, loading, router])
