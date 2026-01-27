@@ -229,10 +229,77 @@ function SourceEventCard({ event, sourceType }: { event: any; sourceType: string
   )
 }
 
+// Format duration in minutes/hours
+function formatDuration(seconds: number): string {
+  if (!seconds || seconds <= 0) return ''
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`
+  }
+  return `${minutes} min`
+}
+
 // Artifact Card Component - determines which card to use based on type
 function ArtifactCard({ item, artifactType }: { item: any; artifactType: string }) {
   if (artifactType === 'twitter') {
     return <TweetCard tweet={item} />
+  }
+  
+  // Podcast episode artifact
+  if (artifactType === 'podcast') {
+    const episode = item.episode || {}
+    const title = episode.title || item.title || 'Untitled Episode'
+    const description = episode.description || ''
+    const publishDate = episode.publish_date || item.timestamp
+    const duration = episode.duration_seconds
+    const url = episode.episode_url
+    const episodeId = episode.episode_id || item.id
+    
+    return (
+      <div className="p-3 rounded-lg" style={{ background: 'var(--bg-darker)', border: '1px solid var(--border)' }}>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-medium" style={{ color: 'var(--fg)' }}>
+              {title}
+            </div>
+            {description && (
+              <p className="text-xs mt-1" style={{ color: 'var(--fg-dim)', lineHeight: '1.4' }}>
+                {description.length > 150 ? description.substring(0, 150) + '...' : description}
+              </p>
+            )}
+            <div className="flex items-center gap-3 mt-2">
+              {publishDate && (
+                <span className="text-xs" style={{ color: 'var(--fg-subtle)' }} title={formatTimestamp(publishDate)}>
+                  {formatRelativeTime(publishDate)}
+                </span>
+              )}
+              {duration && (
+                <span className="text-xs" style={{ color: 'var(--fg-subtle)' }}>
+                  {formatDuration(duration)}
+                </span>
+              )}
+              {episodeId && (
+                <span className="text-xs font-mono" style={{ color: 'var(--fg-subtle)' }}>
+                  {episodeId}
+                </span>
+              )}
+            </div>
+          </div>
+          {url && (
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs flex-shrink-0"
+              style={{ color: 'var(--gold)' }}
+            >
+              Listen
+            </a>
+          )}
+        </div>
+      </div>
+    )
   }
   
   // Blog post
@@ -258,9 +325,57 @@ function ArtifactCard({ item, artifactType }: { item: any; artifactType: string 
     )
   }
   
-  // Generic artifact
-  const title = item.title || item.name || 'Untitled'
-  const timestamp = item.timestamp || item.created_at
+  // YouTube video
+  if (artifactType === 'youtube') {
+    const video = item.video || {}
+    const title = video.title || item.title || 'Untitled Video'
+    const description = video.description || item.description || ''
+    const timestamp = video.publish_date || item.timestamp || item.created_at
+    const duration = video.duration_seconds || item.duration_seconds
+    const url = video.url || item.url
+    
+    return (
+      <div className="p-3 rounded-lg" style={{ background: 'var(--bg-darker)', border: '1px solid var(--border)' }}>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-medium" style={{ color: 'var(--fg)' }}>{title}</div>
+            {description && (
+              <p className="text-xs mt-1" style={{ color: 'var(--fg-dim)' }}>
+                {description.length > 100 ? description.substring(0, 100) + '...' : description}
+              </p>
+            )}
+            <div className="flex items-center gap-3 mt-2">
+              {timestamp && (
+                <span className="text-xs" style={{ color: 'var(--fg-subtle)' }}>
+                  {formatRelativeTime(timestamp)}
+                </span>
+              )}
+              {duration && (
+                <span className="text-xs" style={{ color: 'var(--fg-subtle)' }}>
+                  {formatDuration(duration)}
+                </span>
+              )}
+            </div>
+          </div>
+          {url && (
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs flex-shrink-0"
+              style={{ color: 'var(--gold)' }}
+            >
+              Watch
+            </a>
+          )}
+        </div>
+      </div>
+    )
+  }
+  
+  // Generic artifact - try to find title in nested structures
+  const title = item.title || item.episode?.title || item.video?.title || item.post?.title || item.name || 'Untitled'
+  const timestamp = item.timestamp || item.created_at || item.episode?.publish_date
   
   return (
     <div className="p-3 rounded-lg" style={{ background: 'var(--bg-darker)', border: '1px solid var(--border)' }}>
