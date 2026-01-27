@@ -272,7 +272,14 @@ app.get('/api/auth/:provider/callback', async (c) => {
       // This is a GitHub integrations flow - store token and redirect to integrations page
       const { access_token } = accountData
       oauthStore.set(state, { ...entry, token: access_token })
-      return c.redirect(`${FRONTEND_URL}/settings/integrations?github=complete&code=${encodeURIComponent(state)}`, 302)
+      const redirectUrl = `${FRONTEND_URL}/settings/integrations?github=complete&code=${encodeURIComponent(state)}`
+      console.log(`[OAuth Callback] GitHub integrations flow - Redirecting to: ${redirectUrl}`)
+      console.log(`[OAuth Callback] FRONTEND_URL value: ${FRONTEND_URL}`)
+      if (!FRONTEND_URL || FRONTEND_URL === '/' || FRONTEND_URL.startsWith('/')) {
+        console.error(`[OAuth Callback] ERROR: FRONTEND_URL is invalid: "${FRONTEND_URL}"`)
+        console.error(`[OAuth Callback] This will cause redirects to fail. Check environment variables.`)
+      }
+      return c.redirect(redirectUrl, 302)
     }
 
     oauthStore.delete(state)
@@ -430,31 +437,65 @@ app.get('/api/integrations/github/auth', (c) => {
     const state = `s_${Date.now()}_${Math.random().toString(36).slice(2)}`
     oauthStore.set(state, { user_id: uid })
     pruneOAuthStore()
-    // For GitHub integrations, use the same auth callback (it will route based on state)
-    const callbackUrl = getGitHubCallbackUrl()
+    
+    // For GitHub integrations, use the dedicated callback endpoint
+    // This ensures we route to the correct handler
+    // Use GITHUB_INTEGRATIONS_CALLBACK_URL if set, otherwise default to integrations callback
+    const callbackUrl = process.env.GITHUB_INTEGRATIONS_CALLBACK_URL || `${FRONTEND_URL}/api/integrations/github/callback`
+    console.log(`[GitHub Integrations Auth] Starting OAuth flow for user_id: ${uid}`)
+    console.log(`[GitHub Integrations Auth] Callback URL: ${callbackUrl}`)
+    console.log(`[GitHub Integrations Auth] FRONTEND_URL: ${FRONTEND_URL}`)
+    
     const url = getOAuthAuthUrl(state, callbackUrl)
+    console.log(`[GitHub Integrations Auth] Redirecting to GitHub OAuth: ${url}`)
     return c.redirect(url, 302)
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)
+    console.error(`[GitHub Integrations Auth] Error: ${msg}`)
     return c.json({ error: msg }, 500)
   }
 })
 
-// GitHub OAuth: callback
+// GitHub OAuth: callback (dedicated endpoint for integrations)
 app.get('/api/integrations/github/callback', async (c) => {
   try {
     const code = c.req.query('code')
     const state = c.req.query('state')
-    if (!code || !state) return c.redirect(`${FRONTEND_URL}/settings/integrations?github=error&error=missing`)
+    console.log(`[GitHub Integrations Callback] Received callback - code: ${code ? 'present' : 'missing'}, state: ${state ? 'present' : 'missing'}`)
+    console.log(`[GitHub Integrations Callback] FRONTEND_URL: ${FRONTEND_URL}`)
+    
+    if (!code || !state) {
+      const redirectUrl = `${FRONTEND_URL}/settings/integrations?github=error&error=missing`
+      console.log(`[GitHub Integrations Callback] Missing code or state - Redirecting to: ${redirectUrl}`)
+      return c.redirect(redirectUrl, 302)
+    }
+    
     const entry = oauthStore.get(state)
-    if (!entry || !entry.user_id) return c.redirect(`${FRONTEND_URL}/settings/integrations?github=error&error=invalid_state`)
+    if (!entry || !entry.user_id) {
+      const redirectUrl = `${FRONTEND_URL}/settings/integrations?github=error&error=invalid_state`
+      console.log(`[GitHub Integrations Callback] Invalid state or missing user_id - Redirecting to: ${redirectUrl}`)
+      return c.redirect(redirectUrl, 302)
+    }
+    
     const user_id = entry.user_id
     const { access_token } = await exchangeCodeForToken(code)
     oauthStore.set(state, { ...entry, token: access_token })
-    return c.redirect(`${FRONTEND_URL}/settings/integrations?github=complete&code=${encodeURIComponent(state)}`, 302)
+    
+    const redirectUrl = `${FRONTEND_URL}/settings/integrations?github=complete&code=${encodeURIComponent(state)}`
+    console.log(`[GitHub Integrations Callback] Success - Redirecting to: ${redirectUrl}`)
+    
+    if (!FRONTEND_URL || FRONTEND_URL === '/' || FRONTEND_URL.startsWith('/')) {
+      console.error(`[GitHub Integrations Callback] ERROR: FRONTEND_URL is invalid: "${FRONTEND_URL}"`)
+      console.error(`[GitHub Integrations Callback] This will cause redirects to fail. Check environment variables.`)
+    }
+    
+    return c.redirect(redirectUrl, 302)
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)
-    return c.redirect(`${FRONTEND_URL}/settings/integrations?github=error&error=${encodeURIComponent(msg)}`, 302)
+    console.error(`[GitHub Integrations Callback] Error: ${msg}`)
+    const redirectUrl = `${FRONTEND_URL}/settings/integrations?github=error&error=${encodeURIComponent(msg)}`
+    console.log(`[GitHub Integrations Callback] Error redirect - Redirecting to: ${redirectUrl}`)
+    return c.redirect(redirectUrl, 302)
   }
 })
 
