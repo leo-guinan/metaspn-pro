@@ -9,6 +9,7 @@ export default function AppNav() {
   const navItems = [
     { href: '/', label: 'Home' },
     { href: '/dashboard', label: 'Dashboard' },
+    { href: '/settings/repo', label: 'Repo' },
     { href: '/settings/integrations', label: 'Settings' },
   ]
 

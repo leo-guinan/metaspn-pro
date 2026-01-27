@@ -64,6 +64,7 @@ import {
   setupWebhook,
 } from './services/github.js'
 import { pushToGitHubForUser } from './services/github-push.js'
+import { getRepoStats } from './services/github-repo-stats.js'
 import { syncTwitterArchiveToGitHub, checkArchiveAvailable } from './services/twitter-github-sync.js'
 import { generatePKCE, getOAuthAuthUrl as getTwitterOAuthAuthUrl, exchangeCodeForToken as exchangeTwitterCodeForToken, getUserProfile as getTwitterUserProfile } from './services/twitter.js'
 import { findOrCreateUserFromOAuth, linkOAuthAccount, getUserOAuthAccounts, unlinkOAuthAccount, getOAuthAccount, type OAuthProvider } from './services/oauth.js'
@@ -610,6 +611,18 @@ app.get('/api/integrations/github/status', requireAuth, async (c) => {
       last_error: r.last_error,
     }))
     return c.json({ repos })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return c.json({ error: msg }, 500)
+  }
+})
+
+// GitHub: repo stats (read content from connected repo)
+app.get('/api/integrations/github/repo-stats', requireAuth, async (c) => {
+  try {
+    const user_id = c.get('user_id')
+    const stats = await getRepoStats(user_id)
+    return c.json(stats)
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)
     return c.json({ error: msg }, 500)

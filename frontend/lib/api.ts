@@ -127,6 +127,19 @@ export const githubIntegrationsApi = {
     apiRequest<{ repos: { id: string; full_name: string; repo_owner: string; repo_name: string; branch: string; is_created_by_us: boolean; last_push_at: string | null; last_twitter_sync_at: string | null; last_error: string | null }[] }>(
       `/api/integrations/github/status?user_id=${encodeURIComponent(user_id)}`
     ),
+  repoStats: () =>
+    apiRequest<{
+      connected: boolean
+      repo: { owner: string; name: string; branch: string } | null
+      schema_version: string | null
+      last_sync: string | null
+      sources: Record<string, { file_count: number; event_count: number; recent: any[] }>
+      artifacts: Record<string, { file_count: number; item_count: number; recent: any[] }>
+      reports: string[]
+      preferences: string[]
+      total_events: number
+      total_artifacts: number
+    }>('/api/integrations/github/repo-stats'),
   connect: (data: {
     user_id: string
     code?: string

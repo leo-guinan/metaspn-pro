@@ -111,6 +111,31 @@ export async function getFileContent(
   }
 }
 
+/**
+ * List contents of a directory in a GitHub repository
+ */
+export async function listDirectory(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  path: string,
+  branch: string
+): Promise<Array<{ name: string; path: string; type: 'file' | 'dir'; size: number }> | null> {
+  try {
+    const { data } = await octokit.rest.repos.getContent({ owner, repo, path, ref: branch })
+    if (!Array.isArray(data)) return null
+    return data.map((item) => ({
+      name: item.name,
+      path: item.path,
+      type: item.type === 'dir' ? 'dir' : 'file',
+      size: item.size || 0,
+    }))
+  } catch (e: any) {
+    if (e?.status === 404) return null
+    throw e
+  }
+}
+
 const COMMITTER = { name: 'MetaSPN', email: 'noreply@metaspn.com' } as const
 
 export async function createOrUpdateFile(

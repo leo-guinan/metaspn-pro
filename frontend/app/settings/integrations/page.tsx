@@ -399,6 +399,9 @@ export default function IntegrationsPage() {
                           {r.full_name}
                         </a>
                         <div className="flex gap-2">
+                          <Link href="/settings/repo" className="button secondary">
+                            View Stats
+                          </Link>
                           {accounts.some((a) => a.provider === 'twitter') && (
                             <button
                               onClick={() => handleSync(r.id)}
