@@ -438,10 +438,10 @@ app.get('/api/integrations/github/auth', (c) => {
     oauthStore.set(state, { user_id: uid })
     pruneOAuthStore()
     
-    // For GitHub integrations, use the dedicated callback endpoint
-    // This ensures we route to the correct handler
-    // Use GITHUB_INTEGRATIONS_CALLBACK_URL if set, otherwise default to integrations callback
-    const callbackUrl = process.env.GITHUB_INTEGRATIONS_CALLBACK_URL || `${FRONTEND_URL}/api/integrations/github/callback`
+    // For GitHub integrations, use the same callback URL as login
+    // The main OAuth callback handler will detect this is an integrations flow
+    // based on the state (entry.user_id is set but isLinking is false)
+    const callbackUrl = getGitHubCallbackUrl()
     console.log(`[GitHub Integrations Auth] Starting OAuth flow for user_id: ${uid}`)
     console.log(`[GitHub Integrations Auth] Callback URL: ${callbackUrl}`)
     console.log(`[GitHub Integrations Auth] FRONTEND_URL: ${FRONTEND_URL}`)
