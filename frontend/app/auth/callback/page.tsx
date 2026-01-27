@@ -26,6 +26,15 @@ function AuthCallbackContent() {
       // Store token
       setAuthToken(token)
       
+      // Check for stored redirect path (e.g., after GitHub OAuth for integrations)
+      const storedRedirect = typeof window !== 'undefined' ? localStorage.getItem('metaspn_redirect_after_oauth') : null
+      if (storedRedirect) {
+        console.log('[DEBUG] Auth callback: Found stored redirect, using it', { storedRedirect })
+        localStorage.removeItem('metaspn_redirect_after_oauth')
+        router.push(storedRedirect)
+        return
+      }
+      
       // Redirect based on context
       if (linked) {
         // Account was linked, go to settings

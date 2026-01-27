@@ -15,11 +15,28 @@ export default function Home() {
     const pathname = typeof window !== 'undefined' ? window.location.pathname : ''
     const fullUrl = typeof window !== 'undefined' ? window.location.href : ''
     // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'page.tsx:14',message:'Root page useEffect triggered',data:{loading,hasUser:!!user,pathname,fullUrl},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    console.log('[DEBUG] Root page useEffect triggered', { loading, hasUser: !!user, pathname, fullUrl })
     // #endregion
+    
+    // Only run redirect logic if we're actually on the root path
+    if (pathname !== '/') {
+      return
+    }
+    
+    // Check for stored redirect path after OAuth
+    if (typeof window !== 'undefined' && user) {
+      const storedRedirect = localStorage.getItem('metaspn_redirect_after_oauth')
+      if (storedRedirect) {
+        console.log('[DEBUG] Found stored redirect path, redirecting', { storedRedirect })
+        localStorage.removeItem('metaspn_redirect_after_oauth')
+        router.push(storedRedirect)
+        return
+      }
+    }
+    
     if (!loading && !user) {
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'page.tsx:17',message:'Root page redirecting to login',data:{pathname},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      console.log('[DEBUG] Root page redirecting to login', { pathname })
       // #endregion
       router.push('/auth/login')
     }

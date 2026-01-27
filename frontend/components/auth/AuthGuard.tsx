@@ -21,21 +21,34 @@ export function AuthGuard({ children }: AuthGuardProps) {
 
   useEffect(() => {
     // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthGuard.tsx:22',message:'AuthGuard useEffect triggered',data:{loading,isPublicRoute,hasUser:!!user,pathname},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    console.log('[DEBUG] AuthGuard useEffect triggered', { loading, isPublicRoute, hasUser: !!user, pathname })
     // #endregion
     
     // Don't redirect if we're still loading or on a public route
     if (loading || isPublicRoute) {
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthGuard.tsx:26',message:'AuthGuard skipping redirect',data:{reason:loading?'loading':'publicRoute'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      console.log('[DEBUG] AuthGuard skipping redirect', { reason: loading ? 'loading' : 'publicRoute' })
       // #endregion
       return
+    }
+
+    // Don't redirect if we're on settings/integrations with OAuth callback params
+    // This prevents interrupting the OAuth flow
+    if (typeof window !== 'undefined' && pathname === '/settings/integrations') {
+      const urlParams = new URLSearchParams(window.location.search)
+      if (urlParams.has('github') || urlParams.has('code')) {
+        console.log('[DEBUG] AuthGuard skipping redirect - OAuth callback in progress', { 
+          github: urlParams.get('github'), 
+          hasCode: urlParams.has('code') 
+        })
+        return
+      }
     }
 
     // Redirect to login if not authenticated
     if (!user) {
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AuthGuard.tsx:31',message:'AuthGuard redirecting to login',data:{pathname},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      console.log('[DEBUG] AuthGuard redirecting to login', { pathname })
       // #endregion
       router.push('/auth/login')
     }

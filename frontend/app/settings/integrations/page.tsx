@@ -44,7 +44,7 @@ export default function IntegrationsPage() {
   useEffect(() => {
     const pathname = typeof window !== 'undefined' ? window.location.pathname : ''
     const fullUrl = typeof window !== 'undefined' ? window.location.href : ''
-    fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'integrations/page.tsx:22',message:'IntegrationsPage mounted',data:{pathname,fullUrl,hasUser:!!user,userId:user?.user_id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    console.log('[DEBUG] IntegrationsPage mounted', { pathname, fullUrl, hasUser: !!user, userId: user?.user_id })
   }, []);
   // #endregion
 
@@ -56,25 +56,29 @@ export default function IntegrationsPage() {
     const fullUrl = typeof window !== 'undefined' ? window.location.href : ''
     
     // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'integrations/page.tsx:43',message:'Query params useEffect triggered',data:{github,code,err,pathname,fullUrl,hasUser:!!user,userId:user?.user_id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+    console.log('[DEBUG] Query params useEffect triggered', { github, code, err, pathname, fullUrl, hasUser: !!user, userId: user?.user_id })
     // #endregion
     
     if (github === 'complete' && code) {
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'integrations/page.tsx:50',message:'GitHub complete detected, setting oauthCode',data:{code},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+      console.log('[DEBUG] GitHub complete detected, setting oauthCode', { code })
       // #endregion
       setOauthCode(code)
       setMode('choose')
+      // Store OAuth code in localStorage in case of page refresh
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('metaspn_oauth_code', code)
+      }
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'integrations/page.tsx:54',message:'About to call router.replace',data:{targetPath:'/settings/integrations'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+      console.log('[DEBUG] About to call router.replace', { targetPath: '/settings/integrations' })
       // #endregion
       router.replace('/settings/integrations', { scroll: false })
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'integrations/page.tsx:56',message:'router.replace called',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+      console.log('[DEBUG] router.replace called')
       // #endregion
     } else if (github === 'error' && err) {
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'integrations/page.tsx:58',message:'GitHub error detected',data:{err},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+      console.log('[DEBUG] GitHub error detected', { err })
       // #endregion
       setError(decodeURIComponent(err))
       router.replace('/settings/integrations', { scroll: false })
@@ -82,6 +86,16 @@ export default function IntegrationsPage() {
   }, [searchParams, router, user])
 
   useEffect(() => {
+    // Restore page state from localStorage on mount/refresh
+    if (typeof window !== 'undefined') {
+      const storedOauthCode = localStorage.getItem('metaspn_oauth_code')
+      if (storedOauthCode) {
+        console.log('[DEBUG] Restoring OAuth code from localStorage', { code: storedOauthCode })
+        setOauthCode(storedOauthCode)
+        localStorage.removeItem('metaspn_oauth_code')
+      }
+    }
+    
     if (user) {
       loadStatus()
       loadArchiveStatus()
@@ -136,17 +150,21 @@ export default function IntegrationsPage() {
 
   function startOAuth() {
     // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'integrations/page.tsx:110',message:'startOAuth called',data:{hasUser:!!user,userId:user?.user_id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+    console.log('[DEBUG] startOAuth called', { hasUser: !!user, userId: user?.user_id })
     // #endregion
     if (!user) {
       // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'integrations/page.tsx:112',message:'startOAuth aborted - no user',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+      console.log('[DEBUG] startOAuth aborted - no user')
       // #endregion
       return
     }
+    // Store current page in localStorage before redirecting
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('metaspn_redirect_after_oauth', '/settings/integrations')
+    }
     const authUrl = githubIntegrationsApi.authUrl(user.user_id)
     // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/38fffe99-bfdc-4cb7-a41c-77b25a3a0ee5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'integrations/page.tsx:116',message:'Redirecting to GitHub OAuth',data:{authUrl,currentPath:typeof window !== 'undefined' ? window.location.href : ''},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+    console.log('[DEBUG] Redirecting to GitHub OAuth', { authUrl, currentPath: typeof window !== 'undefined' ? window.location.href : '' })
     // #endregion
     window.location.href = authUrl
   }
