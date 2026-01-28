@@ -124,7 +124,10 @@ jobs:
             mkdir -p /opt/metaspn/scripts
             
             # Download docker-compose.prod.yml from GitHub raw content
-            curl -sL "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/docker-compose.prod.yml" \
+            # Use workflow_run.head_sha when triggered by CI, otherwise github.sha
+            COMMIT_SHA="${{ github.event.workflow_run.head_sha || github.sha }}"
+            echo "📋 Downloading docker-compose.prod.yml from commit: $COMMIT_SHA"
+            curl -sL "https://raw.githubusercontent.com/${{ github.repository }}/$COMMIT_SHA/docker-compose.prod.yml" \
               -o /opt/metaspn/docker-compose.prod.yml
             
             # Verify file was downloaded
@@ -156,7 +159,7 @@ jobs:
             
             for script in "${SCRIPTS[@]}"; do
               script_name=$(basename "$script")
-              curl -sL "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/$script" \
+              curl -sL "https://raw.githubusercontent.com/${{ github.repository }}/$COMMIT_SHA/$script" \
                 -o "/opt/metaspn/scripts/$script_name" && \
               chmod +x "/opt/metaspn/scripts/$script_name" && \
               echo "✅ Downloaded $script_name" || \
