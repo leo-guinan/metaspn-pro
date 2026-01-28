@@ -62,10 +62,8 @@ services:
         max-file: "3"
 
   frontend:
-    build:
-      context: .
-      dockerfile: ./frontend/Dockerfile.prod
-    image: metaspn-frontend:latest
+    image: ghcr.io/leo-guinan/metaspn-pro/frontend:latest
+    pull_policy: always
     container_name: metaspn-frontend-prod
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
@@ -146,7 +144,7 @@ services:
   # Database backup service removed - Neon.tech handles backups automatically
 
   nginx:
-    image: metaspn-nginx:latest
+    image: ghcr.io/leo-guinan/metaspn-pro/nginx:latest
     container_name: metaspn-nginx-prod
     pull_policy: always
     ports:
