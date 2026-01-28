@@ -8,6 +8,7 @@ import {
 import { pool } from './db/index.js'
 import { pushToGitHubForUser } from './services/github-push.js'
 import { enhanceAllUserRepos } from './services/repo-enhancer.js'
+import { startRun, endRun, type TriggerType } from './services/tracking.js'
 
 // Initialize database connection
 async function initializeDatabase() {
@@ -20,20 +21,40 @@ async function initializeDatabase() {
   }
 }
 
-// Execute a workflow with error handling
+// Execute a workflow with error handling and tracking
 async function executeWorkflow(
   workflowName: string,
   workflow: any,
-  inputData: any = {}
+  inputData: any = {},
+  trigger: TriggerType = 'cron'
 ) {
+  let runInfo: { run_id: string } | null = null
+  
   try {
-    console.log(`🚀 Starting workflow: ${workflowName}`)
+    // Start tracking the run
+    runInfo = await startRun(workflowName, trigger, inputData)
+    console.log(`🚀 Starting workflow: ${workflowName} (run_id: ${runInfo.run_id})`)
+    
     const run = await workflow.createRun()
     const result = await run.start({ inputData })
-    console.log(`✅ Workflow completed: ${workflowName}`, result)
+    
+    // Mark run as completed
+    await endRun(runInfo.run_id, 'completed', result || undefined)
+    console.log(`✅ Workflow completed: ${workflowName} (run_id: ${runInfo.run_id})`)
+    
     return result
   } catch (error: any) {
     console.error(`❌ Workflow failed: ${workflowName}`, error.message)
+    
+    // Mark run as failed if we have a run_id
+    if (runInfo?.run_id) {
+      try {
+        await endRun(runInfo.run_id, 'failed', undefined, error.message)
+      } catch (trackingError: any) {
+        console.error(`❌ Failed to track error for ${workflowName}:`, trackingError.message)
+      }
+    }
+    
     // Don't throw - we want the worker to continue running
     return null
   }

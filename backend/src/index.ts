@@ -71,6 +71,17 @@ import { findOrCreateUserFromOAuth, linkOAuthAccount, getUserOAuthAccounts, unli
 import { generateToken } from './services/jwt.js'
 import { requireAuth } from './middleware/auth.js'
 import { requirePodcastOwnership } from './middleware/ownership.js'
+import { requireAdmin } from './middleware/admin.js'
+import {
+  getRuns,
+  getRunDetail,
+  getStats,
+  getWorkflowNames,
+  isUserAdmin,
+  startRun,
+  endRun,
+  type RunsFilter,
+} from './services/tracking.js'
 import { verifyToken } from './services/jwt.js'
 import {
   claimPodcastOwnership,
@@ -1828,6 +1839,187 @@ app.get('/api/episodes/:episode_id/analytics', requireAuth, async (c) => {
   } catch (error: any) {
     console.error('Get episode analytics error:', error)
     return c.json({ error: error.message || 'Failed to get episode analytics' }, 500)
+  }
+})
+
+// ============================================================================
+// Admin Dashboard Endpoints
+// ============================================================================
+
+// Check if current user is admin
+app.get('/api/admin/check', requireAuth, async (c) => {
+  try {
+    const user_id = c.get('user_id')
+    const isAdmin = await isUserAdmin(user_id)
+    return c.json({ is_admin: isAdmin })
+  } catch (error: any) {
+    console.error('Admin check error:', error)
+    return c.json({ error: error.message || 'Failed to check admin status' }, 500)
+  }
+})
+
+// Get admin dashboard stats
+app.get('/api/admin/stats', requireAuth, requireAdmin, async (c) => {
+  try {
+    const days = parseInt(c.req.query('days') || '7', 10)
+    const stats = await getStats(days)
+    return c.json(stats)
+  } catch (error: any) {
+    console.error('Admin stats error:', error)
+    return c.json({ error: error.message || 'Failed to get stats' }, 500)
+  }
+})
+
+// Get list of workflow runs
+app.get('/api/admin/runs', requireAuth, requireAdmin, async (c) => {
+  try {
+    const filter: RunsFilter = {
+      status: c.req.query('status') as any,
+      workflow_name: c.req.query('workflow_name'),
+      trigger: c.req.query('trigger') as any,
+      limit: c.req.query('limit') ? parseInt(c.req.query('limit')!, 10) : 50,
+      offset: c.req.query('offset') ? parseInt(c.req.query('offset')!, 10) : 0,
+    }
+    
+    if (c.req.query('since')) {
+      filter.since = new Date(c.req.query('since')!)
+    }
+    
+    const result = await getRuns(filter)
+    return c.json(result)
+  } catch (error: any) {
+    console.error('Admin runs error:', error)
+    return c.json({ error: error.message || 'Failed to get runs' }, 500)
+  }
+})
+
+// Get workflow run detail
+app.get('/api/admin/runs/:run_id', requireAuth, requireAdmin, async (c) => {
+  try {
+    const run_id = c.req.param('run_id')
+    const detail = await getRunDetail(run_id)
+    
+    if (!detail) {
+      return c.json({ error: 'Run not found' }, 404)
+    }
+    
+    return c.json(detail)
+  } catch (error: any) {
+    console.error('Admin run detail error:', error)
+    return c.json({ error: error.message || 'Failed to get run detail' }, 500)
+  }
+})
+
+// Get list of available workflow names
+app.get('/api/admin/workflows', requireAuth, requireAdmin, async (c) => {
+  try {
+    const workflows = await getWorkflowNames()
+    
+    // Also include known workflow names from the worker
+    const knownWorkflows = [
+      'transcript_discovery',
+      'influence_linking',
+      'daily_report',
+      'monthly_digest',
+      'podcast_discovery',
+      'process_transcript',
+    ]
+    
+    // Merge and dedupe
+    const allWorkflows = [...new Set([...workflows, ...knownWorkflows])].sort()
+    
+    return c.json({ workflows: allWorkflows })
+  } catch (error: any) {
+    console.error('Admin workflows error:', error)
+    return c.json({ error: error.message || 'Failed to get workflows' }, 500)
+  }
+})
+
+// Trigger a workflow manually
+app.post('/api/admin/runs/:workflow_name/trigger', requireAuth, requireAdmin, async (c) => {
+  try {
+    const workflow_name = c.req.param('workflow_name')
+    const body = await c.req.json().catch(() => ({}))
+    const inputData = body.input_data || {}
+    
+    // Import workflows dynamically to avoid circular dependencies
+    let workflow: any = null
+    
+    switch (workflow_name) {
+      case 'transcript_discovery':
+        const td = await import('./mastra/workflows/transcript-discovery-workflow.js')
+        workflow = td.transcriptDiscoveryWorkflow
+        break
+      case 'influence_linking':
+        const il = await import('./mastra/workflows/influence-linking-workflow.js')
+        workflow = il.influenceLinkingWorkflow
+        break
+      case 'daily_report':
+        const dr = await import('./mastra/workflows/generate-daily-report-workflow.js')
+        workflow = dr.generateDailyReportWorkflow
+        break
+      case 'monthly_digest':
+        const md = await import('./mastra/workflows/monthly-digest-workflow.js')
+        workflow = md.monthlyDigestWorkflow
+        break
+      case 'podcast_discovery':
+        const pd = await import('./mastra/workflows/podcast-discovery-workflow.js')
+        workflow = pd.podcastDiscoveryWorkflow
+        break
+      default:
+        return c.json({ error: `Unknown workflow: ${workflow_name}` }, 400)
+    }
+    
+    // Start tracking the run
+    const runInfo = await startRun(workflow_name, 'manual', inputData)
+    
+    // Run workflow asynchronously (don't wait)
+    const runExecution = async () => {
+      try {
+        const run = await workflow.createRun()
+        const result = await run.start({ inputData })
+        await endRun(runInfo.run_id, 'completed', result || undefined)
+      } catch (error: any) {
+        await endRun(runInfo.run_id, 'failed', undefined, error.message)
+      }
+    }
+    
+    // Fire and forget
+    runExecution().catch((e) => console.error('Workflow execution error:', e))
+    
+    return c.json({
+      message: `Workflow ${workflow_name} triggered`,
+      run_id: runInfo.run_id,
+    })
+  } catch (error: any) {
+    console.error('Admin trigger workflow error:', error)
+    return c.json({ error: error.message || 'Failed to trigger workflow' }, 500)
+  }
+})
+
+// Get scheduled jobs info
+app.get('/api/admin/scheduled-jobs', requireAuth, requireAdmin, async (c) => {
+  try {
+    const githubCron = process.env.GITHUB_PUSH_CRON?.trim() || '0 */6 * * *'
+    const repoEnhancementCron = process.env.REPO_ENHANCEMENT_CRON?.trim() || '*/30 * * * *'
+    
+    const jobs = [
+      { name: 'Transcript Discovery', schedule: '0 2 * * *', description: 'Daily at 2 AM UTC' },
+      { name: 'Influence Linking', schedule: '0 * * * *', description: 'Hourly' },
+      { name: 'Daily Report', schedule: '0 0 * * *', description: 'Midnight UTC' },
+      { name: 'Monthly Digest', schedule: '0 1 1 * *', description: '1st of month at 1 AM UTC' },
+      { name: 'Enhancement Watcher', schedule: '*/15 * * * *', description: 'Every 15 minutes' },
+      { name: 'GitHub Push', schedule: githubCron, description: 'Configurable' },
+      { name: 'Hub Sync', schedule: '0 3 * * *', description: 'Daily at 3 AM UTC' },
+      { name: 'Feed Digest Daily', schedule: '0 9 * * *', description: 'Daily at 9 AM UTC' },
+      { name: 'Feed Digest Weekly', schedule: '0 10 * * 1', description: 'Monday at 10 AM UTC' },
+      { name: 'Repo Enhancement', schedule: repoEnhancementCron, description: 'Configurable' },
+    ]
+    
+    return c.json({ jobs })
+  } catch (error: any) {
+    console.error('Admin scheduled jobs error:', error)
+    return c.json({ error: error.message || 'Failed to get scheduled jobs' }, 500)
   }
 })
 

@@ -499,3 +499,144 @@ export const networkApi = {
       body: JSON.stringify({ gates }),
     }),
 }
+
+// ============================================================================
+// Admin API
+// ============================================================================
+
+export interface WorkflowRun {
+  run_id: string
+  workflow_name: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  trigger: 'cron' | 'manual' | 'api' | 'webhook'
+  input_data: Record<string, unknown> | null
+  output_data: Record<string, unknown> | null
+  error_message: string | null
+  started_at: string
+  ended_at: string | null
+  duration_ms: number | null
+  created_at: string
+}
+
+export interface WorkflowStep {
+  step_id: string
+  run_id: string
+  step_name: string
+  step_index: number
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  input_data: Record<string, unknown> | null
+  output_data: Record<string, unknown> | null
+  error_message: string | null
+  started_at: string
+  ended_at: string | null
+  duration_ms: number | null
+}
+
+export interface AgentInvocation {
+  invocation_id: string
+  run_id: string | null
+  step_id: string | null
+  agent_name: string
+  model: string | null
+  prompt_preview: string | null
+  response_preview: string | null
+  prompt_tokens: number | null
+  completion_tokens: number | null
+  total_tokens: number | null
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  error_message: string | null
+  started_at: string
+  ended_at: string | null
+  duration_ms: number | null
+}
+
+export interface ToolCall {
+  call_id: string
+  run_id: string | null
+  step_id: string | null
+  invocation_id: string | null
+  tool_name: string
+  input_data: Record<string, unknown> | null
+  output_preview: string | null
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  error_message: string | null
+  started_at: string
+  ended_at: string | null
+  duration_ms: number | null
+}
+
+export interface AdminStats {
+  total_runs: number
+  successful_runs: number
+  failed_runs: number
+  running_runs: number
+  success_rate: number
+  avg_duration_ms: number
+  runs_by_workflow: Record<string, number>
+  runs_by_day: Array<{ date: string; count: number; failed: number }>
+  total_agent_invocations: number
+  total_tool_calls: number
+}
+
+export interface ScheduledJob {
+  name: string
+  schedule: string
+  description: string
+}
+
+export const adminApi = {
+  // Check if current user is admin
+  checkAdmin: () =>
+    apiRequest<{ is_admin: boolean }>('/api/admin/check'),
+
+  // Get dashboard stats
+  getStats: (days: number = 7) =>
+    apiRequest<AdminStats>(`/api/admin/stats?days=${days}`),
+
+  // Get workflow runs with filtering
+  getRuns: (params?: {
+    status?: 'pending' | 'running' | 'completed' | 'failed'
+    workflow_name?: string
+    trigger?: 'cron' | 'manual' | 'api' | 'webhook'
+    limit?: number
+    offset?: number
+    since?: string
+  }) => {
+    const searchParams = new URLSearchParams()
+    if (params?.status) searchParams.set('status', params.status)
+    if (params?.workflow_name) searchParams.set('workflow_name', params.workflow_name)
+    if (params?.trigger) searchParams.set('trigger', params.trigger)
+    if (params?.limit) searchParams.set('limit', params.limit.toString())
+    if (params?.offset) searchParams.set('offset', params.offset.toString())
+    if (params?.since) searchParams.set('since', params.since)
+    
+    const queryString = searchParams.toString()
+    return apiRequest<{ runs: WorkflowRun[]; total: number }>(
+      `/api/admin/runs${queryString ? `?${queryString}` : ''}`
+    )
+  },
+
+  // Get run detail with steps, agents, and tool calls
+  getRunDetail: (run_id: string) =>
+    apiRequest<{
+      run: WorkflowRun
+      steps: WorkflowStep[]
+      agent_invocations: AgentInvocation[]
+      tool_calls: ToolCall[]
+    }>(`/api/admin/runs/${run_id}`),
+
+  // Get list of workflow names
+  getWorkflows: () =>
+    apiRequest<{ workflows: string[] }>('/api/admin/workflows'),
+
+  // Trigger a workflow manually
+  triggerWorkflow: (workflow_name: string, input_data?: Record<string, unknown>) =>
+    apiRequest<{ message: string; run_id: string }>(`/api/admin/runs/${workflow_name}/trigger`, {
+      method: 'POST',
+      body: JSON.stringify({ input_data }),
+    }),
+
+  // Get scheduled jobs info
+  getScheduledJobs: () =>
+    apiRequest<{ jobs: ScheduledJob[] }>('/api/admin/scheduled-jobs'),
+}
