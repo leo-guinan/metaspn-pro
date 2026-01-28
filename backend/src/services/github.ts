@@ -260,6 +260,83 @@ export async function appendToArtifacts(
   )
 }
 
+/**
+ * Append enhancement records to enhancement-specific files
+ * These files are separate from raw artifacts and store computed enhancements
+ */
+export async function appendToEnhancementFile(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  branch: string,
+  artifactType: 'twitter' | 'blog' | 'youtube' | 'podcast',
+  enhancementType: 'game_signatures' | 'quality_scores' | 'embeddings',
+  records: string[]
+): Promise<void> {
+  if (records.length === 0) return
+  
+  const path = `artifacts/${artifactType}/${enhancementType}.jsonl`
+  const existing = await getFileContent(octokit, owner, repo, path, branch)
+  const current = existing ? existing.content : ''
+  const appended = current
+    ? current.endsWith('\n')
+      ? current + records.join('\n')
+      : current + '\n' + records.join('\n')
+    : records.join('\n')
+  
+  const commitMessage = `chore(enhancements): append ${records.length} ${enhancementType} for ${artifactType}`
+  
+  await createOrUpdateFile(
+    octokit,
+    owner,
+    repo,
+    path,
+    appended,
+    commitMessage,
+    branch,
+    existing?.sha ?? null
+  )
+}
+
+/**
+ * Read enhancement records from an enhancement file
+ * Returns a Map keyed by item_id for easy lookup
+ */
+export async function readEnhancementFile(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  branch: string,
+  artifactType: 'twitter' | 'blog' | 'youtube' | 'podcast',
+  enhancementType: 'game_signatures' | 'quality_scores' | 'embeddings'
+): Promise<Map<string, any>> {
+  const path = `artifacts/${artifactType}/${enhancementType}.jsonl`
+  const content = await getFileContent(octokit, owner, repo, path, branch)
+  
+  const enhancementMap = new Map<string, any>()
+  
+  if (!content || !content.content.trim()) {
+    return enhancementMap
+  }
+  
+  const lines = content.content.trim().split('\n').filter((line) => line.trim())
+  
+  for (const line of lines) {
+    try {
+      const record = JSON.parse(line)
+      if (record.item_id) {
+        // Store the most recent enhancement for each item_id
+        // (later entries in the file override earlier ones)
+        enhancementMap.set(record.item_id, record)
+      }
+    } catch {
+      // Skip invalid JSON lines
+    }
+  }
+  
+  return enhancementMap
+}
+
 const README_TEMPLATE = `# MetaSPN Content Repository
 
 This repository stores your [MetaSPN](https://metaspn.com) content consumption and creation data in a structured, append-only format.

@@ -4,32 +4,27 @@ import {
   createOctokit,
   decryptToken,
   getFileContent,
-  createOrUpdateFile,
+  appendToEnhancementFile,
+  readEnhancementFile,
 } from './github.js'
 import { classifyGamesBatchTool } from '../mastra/tools/game-classifier-tool.js'
 import { extractThemes, calculateComplexityScore } from './content-analysis.js'
+import type { GameSignature, GameSignatureEnhancement } from '../types/enhancements.js'
 
 // Configuration
 const BATCH_SIZE = parseInt(process.env.REPO_ENHANCEMENT_BATCH_SIZE || '50', 10)
 const MAX_ITEMS_PER_RUN = 200 // Limit total items processed per repo per run
 
-// Artifact paths to enhance
-const ARTIFACT_PATHS = [
-  'artifacts/twitter/tweets.jsonl',
-  'artifacts/blog/posts.jsonl',
-  'artifacts/youtube/videos.jsonl',
-  'artifacts/podcast/episodes.jsonl',
+// Artifact type mapping for file paths
+const ARTIFACT_CONFIG = [
+  { type: 'twitter' as const, file: 'tweets.jsonl' },
+  { type: 'blog' as const, file: 'posts.jsonl' },
+  { type: 'youtube' as const, file: 'videos.jsonl' },
+  { type: 'podcast' as const, file: 'episodes.jsonl' },
 ] as const
 
-// Game signature type
-export interface GameSignature {
-  G1: number
-  G2: number
-  G3: number
-  G4: number
-  G5: number
-  G6: number
-}
+// Re-export GameSignature for backward compatibility
+export type { GameSignature }
 
 // Generic artifact structure (common fields across all artifact types)
 export interface ArtifactAnalysis {
@@ -44,7 +39,7 @@ export interface ArtifactItem {
   timestamp: string
   user_id: string
   version: string
-  analysis?: ArtifactAnalysis
+  analysis?: ArtifactAnalysis // Optional - may exist from legacy inline enhancements
   // Type-specific fields
   tweet?: {
     id: string
@@ -86,12 +81,44 @@ export interface EnhancementResult {
 }
 
 /**
- * Check if an artifact needs classification (game_signature is all zeros or missing)
+ * Get the unique ID for an artifact item (used for enhancement lookup)
  */
-function needsClassification(item: ArtifactItem): boolean {
-  const sig = item.analysis?.game_signature
-  if (!sig) return true
-  return Object.values(sig).every((v) => v === 0)
+function getItemId(item: ArtifactItem): string {
+  // Try type-specific IDs first
+  if (item.tweet?.id) return item.tweet.id
+  if (item.post?.id) return item.post.id
+  if (item.video?.id) return item.video.id
+  if (item.episode?.id) return item.episode.id
+  // Fallback to top-level id
+  return item.id
+}
+
+/**
+ * Check if an artifact needs classification by checking the enhancement file
+ */
+function needsClassification(
+  item: ArtifactItem,
+  existingEnhancements: Map<string, any>
+): boolean {
+  const itemId = getItemId(item)
+  
+  // Check if enhancement already exists in the separate file
+  if (existingEnhancements.has(itemId)) {
+    const enhancement = existingEnhancements.get(itemId)
+    // Check if the enhancement has a valid game signature
+    const sig = enhancement?.game_signature as GameSignature | undefined
+    if (sig && Object.values(sig).some((v) => v > 0)) {
+      return false // Already classified
+    }
+  }
+  
+  // Also check for legacy inline analysis (backward compatibility)
+  const inlineAnalysis = item.analysis?.game_signature
+  if (inlineAnalysis && Object.values(inlineAnalysis).some((v) => v > 0)) {
+    return false // Already classified inline
+  }
+  
+  return true
 }
 
 /**
@@ -143,14 +170,7 @@ function parseJsonl(content: string): ArtifactItem[] {
 }
 
 /**
- * Serialize artifacts back to JSONL format
- */
-function serializeToJsonl(items: ArtifactItem[]): string {
-  return items.map((item) => JSON.stringify(item)).join('\n')
-}
-
-/**
- * Read artifacts from a specific file and find those needing enhancement
+ * Read artifacts from a specific file
  */
 async function readArtifactsFromPath(
   octokit: Octokit,
@@ -174,8 +194,8 @@ async function readArtifactsFromPath(
  */
 async function classifyArtifactBatch(
   artifacts: Array<{ item: ArtifactItem; text: string; index: number }>
-): Promise<Map<number, { gameSignature: GameSignature; themes: string[]; complexityScore: number }>> {
-  const results = new Map<number, { gameSignature: GameSignature; themes: string[]; complexityScore: number }>()
+): Promise<Map<number, { gameSignature: GameSignature; primaryGame: string; confidence: number; themes: string[]; complexityScore: number }>> {
+  const results = new Map<number, { gameSignature: GameSignature; primaryGame: string; confidence: number; themes: string[]; complexityScore: number }>()
   
   if (artifacts.length === 0) return results
   
@@ -209,14 +229,15 @@ async function classifyArtifactBatch(
       
       // Set primary game confidence
       const primaryGame = prediction.primary_game as keyof GameSignature
+      const confidence = prediction.confidence || 0.8
       if (primaryGame && gameSignature.hasOwnProperty(primaryGame)) {
-        gameSignature[primaryGame] = prediction.confidence || 0.8
+        gameSignature[primaryGame] = confidence
       }
       
       // Set secondary game with lower confidence
       const secondaryGame = prediction.secondary_game as keyof GameSignature
       if (secondaryGame && gameSignature.hasOwnProperty(secondaryGame) && secondaryGame !== primaryGame) {
-        gameSignature[secondaryGame] = (prediction.confidence || 0.8) * 0.3
+        gameSignature[secondaryGame] = confidence * 0.3
       }
       
       // Extract themes
@@ -231,6 +252,8 @@ async function classifyArtifactBatch(
       
       results.set(artifact.index, {
         gameSignature,
+        primaryGame: primaryGame || '',
+        confidence,
         themes,
         complexityScore,
       })
@@ -243,29 +266,47 @@ async function classifyArtifactBatch(
 }
 
 /**
- * Enhance artifacts in a specific file
+ * Enhance artifacts in a specific artifact type using progressive enhancement files
  */
 async function enhanceArtifactFile(
   octokit: Octokit,
   owner: string,
   repo: string,
   branch: string,
-  path: string
+  artifactType: 'twitter' | 'blog' | 'youtube' | 'podcast',
+  artifactFile: string
 ): Promise<{ enhanced: number; skipped: number; error?: string }> {
+  const artifactPath = `artifacts/${artifactType}/${artifactFile}`
+  
   try {
-    // Read existing artifacts
-    const { items, sha } = await readArtifactsFromPath(octokit, owner, repo, branch, path)
+    // Read existing artifacts (raw data)
+    const { items } = await readArtifactsFromPath(octokit, owner, repo, branch, artifactPath)
     
     if (items.length === 0) {
+      console.log(`  No items found in ${artifactPath}`)
       return { enhanced: 0, skipped: 0 }
     }
+    
+    console.log(`  Found ${items.length} items in ${artifactPath}`)
+    
+    // Read existing enhancements from separate file
+    const existingEnhancements = await readEnhancementFile(
+      octokit,
+      owner,
+      repo,
+      branch,
+      artifactType,
+      'game_signatures'
+    )
+    
+    console.log(`  Found ${existingEnhancements.size} existing game_signature enhancements`)
     
     // Find artifacts that need classification
     const toClassify: Array<{ item: ArtifactItem; text: string; index: number }> = []
     
     for (let i = 0; i < items.length; i++) {
       const item = items[i]
-      if (needsClassification(item)) {
+      if (needsClassification(item, existingEnhancements)) {
         const text = extractTextForClassification(item)
         if (text && text.length >= 10) {
           // Only classify if there's meaningful text
@@ -278,14 +319,15 @@ async function enhanceArtifactFile(
     }
     
     if (toClassify.length === 0) {
+      console.log(`  All ${items.length} items already have enhancements`)
       return { enhanced: 0, skipped: items.length }
     }
     
-    console.log(`  Found ${toClassify.length} artifacts to classify in ${path}`)
+    console.log(`  Found ${toClassify.length} artifacts to classify in ${artifactPath}`)
     
-    // Process in batches
-    let totalEnhanced = 0
-    const updatedItems = [...items]
+    // Process in batches and collect all enhancement records
+    const newEnhancements: GameSignatureEnhancement[] = []
+    const computedAt = new Date().toISOString()
     
     for (let i = 0; i < toClassify.length; i += BATCH_SIZE) {
       const batch = toClassify.slice(i, i + BATCH_SIZE)
@@ -293,22 +335,21 @@ async function enhanceArtifactFile(
       
       const classifications = await classifyArtifactBatch(batch)
       
-      // Apply classifications to items
+      // Create enhancement records
       for (const [index, classification] of classifications) {
-        const item = updatedItems[index]
-        if (!item.analysis) {
-          item.analysis = {
-            game_signature: { G1: 0, G2: 0, G3: 0, G4: 0, G5: 0, G6: 0 },
-            themes: [],
-            sentiment: 'neutral',
-            complexity_score: 0,
-          }
+        const item = items[index]
+        const itemId = getItemId(item)
+        
+        const enhancement: GameSignatureEnhancement = {
+          item_id: itemId,
+          timestamp: item.timestamp,
+          computed_at: computedAt,
+          game_signature: classification.gameSignature,
+          primary_game: classification.primaryGame,
+          confidence: classification.confidence,
         }
         
-        item.analysis.game_signature = classification.gameSignature
-        item.analysis.themes = classification.themes
-        item.analysis.complexity_score = classification.complexityScore
-        totalEnhanced++
+        newEnhancements.push(enhancement)
       }
       
       // Small delay between batches to avoid rate limiting
@@ -317,29 +358,30 @@ async function enhanceArtifactFile(
       }
     }
     
-    // Write back only if we enhanced something
-    if (totalEnhanced > 0) {
-      const newContent = serializeToJsonl(updatedItems)
-      await createOrUpdateFile(
+    // Write enhancements to separate file (append-only)
+    if (newEnhancements.length > 0) {
+      const enhancementRecords = newEnhancements.map((e) => JSON.stringify(e))
+      
+      await appendToEnhancementFile(
         octokit,
         owner,
         repo,
-        path,
-        newContent,
-        `chore(enhance): classify ${totalEnhanced} artifacts with game signatures`,
         branch,
-        sha
+        artifactType,
+        'game_signatures',
+        enhancementRecords
       )
-      console.log(`  ✅ Enhanced ${totalEnhanced} artifacts in ${path}`)
+      
+      console.log(`  ✅ Appended ${newEnhancements.length} game_signature enhancements for ${artifactType}`)
     }
     
     return {
-      enhanced: totalEnhanced,
+      enhanced: newEnhancements.length,
       skipped: items.length - toClassify.length,
     }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error)
-    console.error(`  ❌ Error enhancing ${path}:`, errorMsg)
+    console.error(`  ❌ Error enhancing ${artifactPath}:`, errorMsg)
     return { enhanced: 0, skipped: 0, error: errorMsg }
   }
 }
@@ -387,13 +429,20 @@ export async function enhanceUserRepo(userId: string): Promise<EnhancementResult
     
     console.log(`🔄 Enhancing repo: ${repo_owner}/${repo_name}`)
     
-    // Process each artifact file
-    for (const path of ARTIFACT_PATHS) {
-      const fileResult = await enhanceArtifactFile(octokit, repo_owner, repo_name, branch, path)
+    // Process each artifact type
+    for (const { type, file } of ARTIFACT_CONFIG) {
+      const fileResult = await enhanceArtifactFile(
+        octokit,
+        repo_owner,
+        repo_name,
+        branch,
+        type,
+        file
+      )
       result.artifactsEnhanced += fileResult.enhanced
       result.skipped += fileResult.skipped
       if (fileResult.error) {
-        result.errors.push(`${path}: ${fileResult.error}`)
+        result.errors.push(`${type}/${file}: ${fileResult.error}`)
       }
     }
     

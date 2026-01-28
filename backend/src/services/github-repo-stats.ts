@@ -1,5 +1,6 @@
 import { pool } from '../db/index.js'
-import { createOctokit, decryptToken, getFileContent, listDirectory } from './github.js'
+import { createOctokit, decryptToken, getFileContent, listDirectory, readEnhancementFile } from './github.js'
+import { isEnhancementFile } from '../types/enhancements.js'
 
 export interface GameSignature {
   G1: number
@@ -70,6 +71,48 @@ function getPrimaryGame(sig: GameSignature): { game: string; percentage: number 
     game: sorted[0][0],
     percentage: Math.round((sorted[0][1] / total) * 100),
   }
+}
+
+/**
+ * Get the unique ID for an artifact item (used for enhancement lookup)
+ */
+function getItemId(item: any): string {
+  // Try type-specific IDs first
+  if (item.tweet?.id) return item.tweet.id
+  if (item.post?.id) return item.post.id
+  if (item.video?.id) return item.video.id
+  if (item.episode?.id) return item.episode.id
+  // Fallback to top-level id
+  return item.id
+}
+
+/**
+ * Merge enhancement data into items
+ * Supports both inline analysis (legacy) and separate enhancement files (progressive)
+ */
+function mergeEnhancements(items: any[], enhancements: Map<string, any>): any[] {
+  return items.map((item) => {
+    const itemId = getItemId(item)
+    const enhancement = enhancements.get(itemId)
+    
+    // If enhancement exists in separate file, merge it
+    if (enhancement?.game_signature) {
+      return {
+        ...item,
+        analysis: {
+          ...(item.analysis || {}),
+          game_signature: enhancement.game_signature,
+          // Preserve existing themes/sentiment from inline analysis if present
+          themes: item.analysis?.themes || [],
+          sentiment: item.analysis?.sentiment || 'neutral',
+          complexity_score: item.analysis?.complexity_score || 0,
+        },
+      }
+    }
+    
+    // Return item unchanged (may have inline analysis or no analysis)
+    return item
+  })
 }
 
 /**
@@ -251,11 +294,14 @@ export async function getRepoStats(userId: string): Promise<RepoStats> {
     
     // Get artifacts stats
     const artifactsDir = await listDirectory(octokit, repo_owner, repo_name, 'artifacts', branch)
+    console.log(`[RepoStats] artifacts directory listing:`, artifactsDir?.map(d => d.name) || 'null')
     if (artifactsDir) {
       for (const artifactFolder of artifactsDir) {
         if (artifactFolder.type === 'dir') {
-          const artifactType = artifactFolder.name // e.g., 'twitter', 'blog', 'youtube'
+          const artifactType = artifactFolder.name as 'twitter' | 'blog' | 'youtube' | 'podcast'
+          console.log(`[RepoStats] Processing artifact folder: ${artifactType}`)
           const artifactFiles = await listDirectory(octokit, repo_owner, repo_name, artifactFolder.path, branch)
+          console.log(`[RepoStats] Files in ${artifactType}:`, artifactFiles?.map(f => f.name) || 'null')
           
           if (artifactFiles) {
             let totalItems = 0
@@ -264,16 +310,43 @@ export async function getRepoStats(userId: string): Promise<RepoStats> {
             let fileCount = 0
             const fileNames: string[] = []
             
+            // First, read enhancement files to build enhancement map
+            let gameSignatureEnhancements = new Map<string, any>()
+            try {
+              gameSignatureEnhancements = await readEnhancementFile(
+                octokit,
+                repo_owner,
+                repo_name,
+                branch,
+                artifactType,
+                'game_signatures'
+              )
+              console.log(`[RepoStats] Loaded ${gameSignatureEnhancements.size} game_signature enhancements for ${artifactType}`)
+            } catch (e) {
+              // Enhancement file may not exist yet, that's okay
+              console.log(`[RepoStats] No game_signatures enhancement file for ${artifactType}`)
+            }
+            
+            // Now read raw artifact files
             for (const file of artifactFiles) {
-              if (file.type === 'file' && file.name.endsWith('.jsonl')) {
+              // Skip enhancement files - only process raw artifact files
+              if (file.type === 'file' && file.name.endsWith('.jsonl') && !isEnhancementFile(file.name)) {
                 fileCount++
                 fileNames.push(file.name)
+                console.log(`[RepoStats] Reading artifact file: ${file.path}`)
                 const fileContent = await getFileContent(octokit, repo_owner, repo_name, file.path, branch)
+                console.log(`[RepoStats] File content length: ${fileContent?.content?.length || 0} bytes`)
                 if (fileContent) {
                   const { count, recent, allItems } = parseJsonlFile(fileContent.content)
+                  console.log(`[RepoStats] Parsed ${count} items from ${file.name}`)
                   totalItems += count
-                  allRecent = [...allRecent, ...recent]
-                  allItemsForGameStats = [...allItemsForGameStats, ...allItems]
+                  
+                  // Merge enhancements from separate files into items
+                  const mergedItems = mergeEnhancements(allItems, gameSignatureEnhancements)
+                  const mergedRecent = mergeEnhancements(recent, gameSignatureEnhancements)
+                  
+                  allRecent = [...allRecent, ...mergedRecent]
+                  allItemsForGameStats = [...allItemsForGameStats, ...mergedItems]
                 }
               }
             }
@@ -285,7 +358,7 @@ export async function getRepoStats(userId: string): Promise<RepoStats> {
               return bTime - aTime
             })
             
-            // Compute aggregate game stats from all items
+            // Compute aggregate game stats from all items (now with merged enhancements)
             const gameStats = aggregateGameSignatures(allItemsForGameStats)
             
             stats.artifacts[artifactType] = {
