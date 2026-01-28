@@ -101,10 +101,9 @@ services:
         max-file: "3"
 
   worker:
-    build:
-      context: .
-      dockerfile: ./backend/Dockerfile.prod
-    image: metaspn-backend:latest
+    # Uses same image as backend (both use Dockerfile.prod.simple)
+    image: ghcr.io/leo-guinan/metaspn-pro/backend:latest
+    pull_policy: always
     container_name: metaspn-worker-prod
     environment:
       # Neon.tech PostgreSQL connection
@@ -120,9 +119,10 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       NODE_ENV: production
       GITHUB_PUSH_CRON: ${GITHUB_PUSH_CRON:-0 */6 * * *}
-    # Worker uses tsx to run TypeScript directly (tsx is installed in production image)
-    # Use node_modules path directly to avoid pnpm store location issues
-    command: ["sh", "-c", "cd /app/backend && node node_modules/.bin/tsx src/worker.ts || node ../node_modules/.bin/tsx src/worker.ts"]
+      GITHUB_TOKEN_ENCRYPTION_KEY: ${GITHUB_TOKEN_ENCRYPTION_KEY}
+      GAME_CLASSIFIER_URL: ${GAME_CLASSIFIER_URL:-http://game-classifier:5000}
+    # Worker uses pnpm run worker (tsx is in dependencies)
+    command: ["pnpm", "run", "worker"]
     depends_on:
       - backend
     # No postgres dependency - database is external (Neon.tech)
@@ -132,11 +132,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.5'    # Reduced - no local database
-          memory: 128M   # Reduced - no local database
+          cpus: '0.5'
+          memory: 512M   # tsx + Mastra + cron jobs needs more memory
         reservations:
           cpus: '0.1'
-          memory: 64M
+          memory: 256M
     logging:
       driver: "json-file"
       options:
